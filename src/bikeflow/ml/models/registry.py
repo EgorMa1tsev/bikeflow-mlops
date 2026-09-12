@@ -1,9 +1,8 @@
 """Model artifact format.
 
-One model is one joblib file with a fixed dictionary layout, so the consumer
-(the FastAPI service from stage 4 on) can load any of them without knowing
-whether torch or scikit-learn is inside. Changing these keys is a breaking
-change to the contract with role B.
+One model is one joblib file with a fixed dictionary layout, so the FastAPI
+service can load any of them without knowing whether torch or scikit-learn is
+inside. Changing these keys is a breaking change to the API contract.
 """
 
 from __future__ import annotations

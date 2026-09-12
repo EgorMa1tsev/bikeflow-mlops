@@ -1,10 +1,42 @@
-# Contributing
+# Правила работы с репозиторием
 
-1. Create a focused branch from current `main` (`feat/*`, `fix/*`, `docs/*`, or `chore/*`).
-2. Keep commits in Conventional Commits format, for example `feat(api): validate prediction input`.
-3. Run `ruff check .`, `ruff format --check .`, `pytest`, and a Docker build.
-4. Open a pull request, complete the checklist, and request review from the other participant.
-5. Merge only after CI passes and one approval is recorded; use squash merge.
+## Ветки
 
-Never commit secrets, datasets, trained model binaries, or generated caches. Changes to the
-prediction schema require both participants to approve the model/API contract.
+Основная ветка — `main`. Она всегда должна проходить CI.
+
+Новая функциональность делается в короткой ветке от `main` и вливается обратно, когда CI зелёный:
+
+- `feat/...` — новая возможность;
+- `fix/...` — исправление ошибки;
+- `docs/...` — документация;
+- `chore/...` — настройка, зависимости, CI.
+
+Небольшие правки документации можно коммитить прямо в `main`.
+
+## Коммиты
+
+Сообщения коммитов — в формате [Conventional Commits](https://www.conventionalcommits.org):
+
+```
+feat(api): validate prediction input
+fix(ml): prevent overflow in softplus inverse
+docs: describe how to run the API
+```
+
+## Перед push
+
+```bash
+ruff check .
+ruff format --check .
+pytest
+```
+
+CI повторяет эти проверки, собирает Docker-образ и проверяет API в контейнере.
+
+## Что нельзя коммитить
+
+Датасеты, обученные модели, файлы `.env`, пароли и токены. Данные и модели создаются командами
+из README, а `.gitignore` не пускает их в репозиторий.
+
+Изменение полей запроса к API меняет контракт: после такого изменения нужно обновить
+`docs/contracts/model_api.md` и тесты в `tests/api/`.

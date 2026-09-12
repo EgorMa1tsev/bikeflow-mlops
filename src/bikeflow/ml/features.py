@@ -1,7 +1,7 @@
 """Shared feature contract.
 
-This module is imported by BOTH the training pipeline and (from stage 4 on) the
-FastAPI service, so it must stay free of training-only concerns. Anything that
+This module is imported by BOTH the training pipeline and the FastAPI service,
+so it must stay free of training-only concerns. Anything that
 changes the meaning of a column here is a breaking change to the API contract.
 """
 

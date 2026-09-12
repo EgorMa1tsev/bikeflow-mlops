@@ -25,7 +25,7 @@ run:
 docker-build:
 	docker build --tag bikeflow:local .
 
-# --- data / model pipeline (participant A) ----------------------------------
+# --- data / model pipeline -------------------------------------------------
 # Requires the `ml` extra: make install-ml
 
 data:

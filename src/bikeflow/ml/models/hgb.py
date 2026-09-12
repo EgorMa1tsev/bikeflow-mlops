@@ -1,7 +1,7 @@
 """Gradient boosting reference model.
 
 Kept alongside the neural network as an honest point of comparison and as a
-ready-made Challenger for the Champion/Challenger gate in stage 7.
+ready-made challenger when a retrained model is compared with the current one.
 
 sklearn's built-in early stopping carves its validation set out at random, which
 would break the temporal discipline of this project, so stopping is driven here

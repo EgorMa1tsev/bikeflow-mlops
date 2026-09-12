@@ -1,4 +1,4 @@
-"""The contract role B builds the API on: one observation or many, same answer."""
+"""The contract the API is built on: one observation or many, same answer."""
 
 import numpy as np
 import pandas as pd
