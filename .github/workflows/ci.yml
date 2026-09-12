@@ -1,9 +1,9 @@
 name: CI
 
+# Every push to any branch is checked, so a feature branch is known to be green
+# before it is merged into main.
 on:
-  pull_request:
   push:
-    branches: [main]
 
 permissions:
   contents: read
