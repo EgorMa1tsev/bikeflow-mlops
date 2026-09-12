@@ -1,0 +1,19 @@
+name: Task
+description: Track a scoped BikeFlow implementation task
+title: ""
+labels: []
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Describe the observable result.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List the checks that demonstrate completion.
+    validations:
+      required: true

@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    image: bikeflow:local
+    environment:
+      BIKEFLOW_MODEL_PATH: /models/model.joblib
+    volumes:
+      - ./models/model.joblib:/models/model.joblib:ro
+    ports:
+      - "8000:8000"

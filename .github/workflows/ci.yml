@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp]"
+      - run: pytest
+
+  ml-tests:
+    name: ml-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      # Torch comes from the CPU-only index: the default wheel pulls in CUDA
+      # and is several gigabytes, which this job does not need.
+      - run: python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp]"
+      - run: pytest tests/ml tests/model
+
+  docker-build:
+    name: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: bikeflow:ci
+
+  docker-runtime-smoke:
+    name: docker-runtime-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+      - run: python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,mlp]"
+      - run: python scripts/create_smoke_artifact.py models/model.joblib
+      - run: docker compose up --detach --build
+      - name: Call the real model through HTTP
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"prediction_time":"2026-07-15T08:00:00+09:00","temperature_c":24.5,"humidity_pct":61,"wind_speed_m_s":1.8,"visibility_10m":1800,"dew_point_c":16.4,"solar_radiation_mj_m2":1.2,"rainfall_mm":0,"snowfall_cm":0,"holiday":false,"functioning_day":true}' \
+            http://127.0.0.1:8000/predict | tee response.json
+          python -c "import json; p=json.load(open('response.json')); assert p['predicted_rentals'] > 0; assert p['model_version'].startswith('mlp_embedding-')"
+      - if: always()
+        run: docker compose down --volumes

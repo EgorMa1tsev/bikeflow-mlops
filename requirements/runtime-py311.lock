@@ -1,0 +1,36 @@
+# Runtime lock captured from the Python 3.11 serving image.
+# Refresh only after validating the full vertical slice on Python 3.11.
+annotated-types==0.8.0
+anyio==4.15.1
+click==8.5.0
+fastapi==0.115.6
+filelock==3.32.3
+fsspec==2026.7.0
+h11==0.16.0
+idna==3.19
+Jinja2==3.1.6
+joblib==1.4.2
+MarkupSafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+numpy==2.2.1
+packaging==26.3
+pandas==2.2.3
+pydantic==2.13.5
+pydantic-settings==2.7.1
+pydantic_core==2.46.5
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.3
+pytz==2026.3.post1
+PyYAML==6.0.2
+scikit-learn==1.6.1
+scipy==1.17.1
+six==1.17.0
+starlette==0.41.3
+sympy==1.13.1
+threadpoolctl==3.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+torch==2.6.0
+tzdata==2026.3
+uvicorn==0.34.0

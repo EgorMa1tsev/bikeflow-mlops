@@ -1,0 +1,89 @@
+# BikeFlow configuration. All tunable values live here, never inline in code.
+
+seed: 42
+
+data:
+  url: https://archive.ics.uci.edu/static/public/560/seoul+bike+sharing+demand.zip
+  csv_name: SeoulBikeData.csv
+  encoding: cp1252
+  raw_dir: data/raw
+  processed_dir: data/processed
+  expected_rows: 8760
+  expected_sha256: 373339b71a8935d69e9af0abf26a70744632119862eeb3919efb389a7b749c60
+
+split:
+  train: ["2017-12-01", "2018-07-31"]
+  validation: ["2018-08-01", "2018-09-30"]
+  test: ["2018-10-01", "2018-11-30"]
+
+# How the champion is chosen. A single validation window rewards whichever model
+# happens to suit those two months: HGB wins Aug-Sep by a wide margin and loses
+# the two folds before it. Averaging over rolling-origin folds removes that
+# accident. Every fold trains on the past and scores on the future, and no fold
+# may touch the test period (enforced in code).
+selection:
+  strategy: rolling_cv        # rolling_cv | validation
+  metric: mae                 # primary metric; WAPE ranks identically within a window
+  inner_weeks: 6              # held out inside each fold for early stopping
+  folds:
+    - ["2018-04-01", "2018-05-31"]
+    - ["2018-06-01", "2018-07-31"]
+    - ["2018-08-01", "2018-09-30"]
+
+target: rented_bike_count
+
+features:
+  # `month` is deliberately excluded. Under the temporal split train holds months
+  # 12 and 1-7 only, so months 8-11 reach the model as levels that never received
+  # a gradient. Season plus the weather columns carry the same information in a
+  # form that survives the split. See reports/model_selection.md.
+  categorical: [hour, day_of_week, season]
+  numeric:
+    - temperature
+    - humidity
+    - wind_speed
+    - visibility
+    - dew_point
+    - solar_radiation
+    - rainfall
+    - snowfall
+    - is_holiday
+
+business_metric:
+  # Underprediction hurts more than overprediction: empty docks mean lost rides.
+  under_weight: 3.0
+  over_weight: 1.0
+
+models:
+  baseline:
+    keys: [hour, day_of_week]
+
+  hgb:
+    loss: poisson
+    max_iter: 400
+    learning_rate: 0.06
+    max_leaf_nodes: 31
+    min_samples_leaf: 20
+    l2_regularization: 1.0
+    early_stopping: true
+    n_iter_no_change: 30
+
+  mlp:
+    encodings: [onehot, embedding]
+    embedding_dims:
+      hour: 4
+      day_of_week: 3
+      month: 3
+      season: 2
+    hidden: [128, 64]
+    dropout: 0.1
+    learning_rate: 0.003
+    weight_decay: 0.0001
+    batch_size: 256
+    max_epochs: 300
+    patience: 25
+
+paths:
+  models_dir: models
+  reports_dir: reports
+  production_model: models/model.joblib
