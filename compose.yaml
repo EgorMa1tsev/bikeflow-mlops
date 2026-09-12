@@ -6,5 +6,10 @@ services:
       BIKEFLOW_MODEL_PATH: /models/model.joblib
     volumes:
       - ./models/model.joblib:/models/model.joblib:ro
+      # Named volume keeps the prediction journal across container restarts.
+      - journal:/var/lib/bikeflow
     ports:
       - "8000:8000"
+
+volumes:
+  journal:

@@ -29,7 +29,12 @@ CMD ["python", "-m", "bikeflow.ml", "train", "--no-figures"]
 
 FROM base AS runtime
 
-RUN addgroup --system bikeflow && adduser --system --ingroup bikeflow bikeflow
+# The API runs as an unprivileged user and cannot write under /app, so the
+# prediction journal gets its own directory owned by that user.
+RUN addgroup --system bikeflow && adduser --system --ingroup bikeflow bikeflow && \
+    mkdir -p /var/lib/bikeflow && chown bikeflow:bikeflow /var/lib/bikeflow
+
+ENV BIKEFLOW_DB_PATH=/var/lib/bikeflow/predictions.db
 
 USER bikeflow
 EXPOSE 8000

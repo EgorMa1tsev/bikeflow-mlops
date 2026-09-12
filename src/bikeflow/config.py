@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     model_path: Path = Path("models/model.joblib")
+    # SQLite journal of served predictions and the actual demand reported later.
+    db_path: Path = Path("data/predictions.db")
 
 
 @lru_cache

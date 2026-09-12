@@ -4,10 +4,17 @@ import json
 import logging
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 
-from bikeflow.api.dependencies import get_predictor
-from bikeflow.api.schemas import HealthResponse, PredictionRequest, PredictionResponse
+from bikeflow.api.dependencies import get_predictor, get_store
+from bikeflow.api.schemas import (
+    ActualRequest,
+    HealthResponse,
+    PredictionRecord,
+    PredictionRequest,
+    PredictionResponse,
+)
+from bikeflow.api.storage import PredictionStore, StoredPrediction
 from bikeflow.config import get_settings
 from bikeflow.ml.features import FeatureValidationError
 from bikeflow.model.protocol import Predictor
@@ -59,18 +66,71 @@ def health() -> HealthResponse:
 def predict(
     request: PredictionRequest,
     predictor: Annotated[Predictor, Depends(get_predictor)],
+    store: Annotated[PredictionStore, Depends(get_store)],
 ) -> PredictionResponse:
-    """Predict hourly rentals with the configured inference implementation."""
+    """Predict hourly rentals and record the prediction in the journal."""
 
+    features = request.to_features()
     try:
-        prediction = predictor.predict(request.to_features())
+        prediction = predictor.predict(features)
     except FeatureValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
-    logger.info("prediction_completed model_version=%s", predictor.model_version)
+
+    prediction_id = store.add(
+        request.prediction_time, features, prediction, predictor.model_version
+    )
+    logger.info(
+        "prediction_completed id=%s model_version=%s", prediction_id, predictor.model_version
+    )
     return PredictionResponse(
+        prediction_id=prediction_id,
         prediction_time=request.prediction_time,
         predicted_rentals=prediction,
         model_version=predictor.model_version,
     )
+
+
+def _to_record(stored: StoredPrediction) -> PredictionRecord:
+    return PredictionRecord(
+        prediction_id=stored.id,
+        created_at=stored.created_at,
+        prediction_time=stored.prediction_time,
+        features=stored.features,
+        predicted_rentals=stored.predicted_rentals,
+        model_version=stored.model_version,
+        actual_rentals=stored.actual_rentals,
+        absolute_error=stored.absolute_error,
+    )
+
+
+@app.post(
+    "/predictions/{prediction_id}/actual",
+    response_model=PredictionRecord,
+    status_code=status.HTTP_200_OK,
+)
+def record_actual(
+    prediction_id: int,
+    request: ActualRequest,
+    store: Annotated[PredictionStore, Depends(get_store)],
+) -> PredictionRecord:
+    """Report the demand actually observed for a previously predicted hour."""
+
+    stored = store.record_actual(prediction_id, request.actual_rentals)
+    if stored is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Prediction {prediction_id} not found.",
+        )
+    return _to_record(stored)
+
+
+@app.get("/predictions", response_model=list[PredictionRecord], status_code=status.HTTP_200_OK)
+def recent_predictions(
+    store: Annotated[PredictionStore, Depends(get_store)],
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> list[PredictionRecord]:
+    """The most recent predictions, newest first, with actual demand when known."""
+
+    return [_to_record(stored) for stored in store.recent(limit)]

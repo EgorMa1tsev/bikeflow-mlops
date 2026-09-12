@@ -86,5 +86,14 @@ jobs:
             --data '{"prediction_time":"2026-07-15T08:00:00+09:00","temperature_c":24.5,"humidity_pct":61,"wind_speed_m_s":1.8,"visibility_10m":1800,"dew_point_c":16.4,"solar_radiation_mj_m2":1.2,"rainfall_mm":0,"snowfall_cm":0,"holiday":false,"functioning_day":true}' \
             http://127.0.0.1:8000/predict | tee response.json
           python -c "import json; p=json.load(open('response.json')); assert p['predicted_rentals'] > 0; assert p['model_version'].startswith('mlp_embedding-')"
+      - name: Record the actual demand in the journal
+        run: |
+          id=$(python -c "import json; print(json.load(open('response.json'))['prediction_id'])")
+          curl --fail --silent --show-error \
+            --header 'Content-Type: application/json' \
+            --data '{"actual_rentals": 500}' \
+            "http://127.0.0.1:8000/predictions/${id}/actual"
+          curl --fail --silent --show-error "http://127.0.0.1:8000/predictions?limit=5" | tee journal.json
+          python -c "import json; rows=json.load(open('journal.json')); assert rows[0]['actual_rentals'] == 500; assert rows[0]['absolute_error'] is not None"
       - if: always()
         run: docker compose down --volumes

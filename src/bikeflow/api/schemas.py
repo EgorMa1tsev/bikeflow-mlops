@@ -82,9 +82,31 @@ PredictionRequest = create_model("PredictionRequest", __base__=PredictionRequest
 class PredictionResponse(BaseModel):
     """Response returned by the demand endpoint."""
 
+    prediction_id: int = Field(description="Journal id; use it to report the actual demand.")
     prediction_time: datetime
     predicted_rentals: float = Field(ge=0)
     model_version: str
+
+
+class ActualRequest(BaseModel):
+    """Observed demand for an hour that has already been predicted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actual_rentals: float = Field(ge=0, description="Rentals actually observed in that hour.")
+
+
+class PredictionRecord(BaseModel):
+    """One journal entry: what was asked, what was predicted, and what happened."""
+
+    prediction_id: int
+    created_at: datetime
+    prediction_time: datetime
+    features: dict[str, FeatureValue]
+    predicted_rentals: float
+    model_version: str
+    actual_rentals: float | None
+    absolute_error: float | None
 
 
 class HealthResponse(BaseModel):

@@ -25,11 +25,43 @@ offset/timezone и перед построением календарных пр
 
 ```json
 {
+  "prediction_id": 17,
   "prediction_time": "2026-07-15T08:00:00+09:00",
   "predicted_rentals": 512.3,
   "model_version": "mlp_embedding-373339b7-..."
 }
 ```
+
+## Журнал прогнозов
+
+Каждый успешный прогноз записывается в SQLite-журнал (`BIKEFLOW_DB_PATH`): входные
+признаки вместе с выведенными `hour`, `day_of_week` и `season`, прогноз, версия модели
+и время запроса. Отклонённые запросы не записываются.
+
+Фактический спрос становится известен только после окончания часа, поэтому он
+досылается отдельно по `prediction_id`:
+
+| Запрос | Тело | Ответ |
+| --- | --- | --- |
+| `POST /predictions/{prediction_id}/actual` | `{"actual_rentals": 498}`, число `>= 0` | запись журнала; `404`, если id неизвестен |
+| `GET /predictions?limit=100` | — | последние записи, новые первыми; `limit` от 1 до 1000 |
+
+Запись журнала:
+
+```json
+{
+  "prediction_id": 17,
+  "created_at": "2026-09-13T10:00:00+00:00",
+  "prediction_time": "2026-07-15T08:00:00+09:00",
+  "features": {"temperature_c": 24.5, "hour": 8, "season": "Summer", "...": "..."},
+  "predicted_rentals": 512.3,
+  "model_version": "mlp_embedding-373339b7-...",
+  "actual_rentals": 498.0,
+  "absolute_error": 14.3
+}
+```
+
+Пока факт не прислан, `actual_rentals` и `absolute_error` равны `null`.
 
 FastAPI получает настоящий `BikeflowPredictor`, который лениво загружает путь из
 `BIKEFLOW_MODEL_PATH`. Ленивая загрузка позволяет вернуть `422` за неверное тело
