@@ -37,6 +37,11 @@ ml = [
 mlp = [
     "torch==2.6.0",
 ]
+# Pipeline reproduction and data versioning. Local tooling only: neither CI nor the
+# Docker image needs it.
+dvc = [
+    "dvc==3.67.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

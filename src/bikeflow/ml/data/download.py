@@ -77,7 +77,7 @@ def download_raw(force: bool = False, timeout: int = 120) -> Path:
         "downloaded_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     (raw_dir / META_NAME).write_text(
-        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n"
     )
 
     print(f"[download] saved {csv_path} ({len(payload)} bytes, sha256={meta['sha256'][:12]}…)")

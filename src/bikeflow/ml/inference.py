@@ -81,6 +81,6 @@ def predict_file(
     if output_path is not None:
         destination = Path(output_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        result.to_csv(destination, index=False)
+        result.to_csv(destination, index=False, lineterminator="\n")
         print(f"[predict] {len(result)} row(s) -> {destination}")
     return result

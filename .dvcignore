@@ -1,0 +1,3 @@
+# Bytecode caches change on every import and must not invalidate pipeline stages.
+__pycache__/
+*.pyc

@@ -1,0 +1,70 @@
+# Reproducible data and model pipeline. `dvc repro` reruns only the stages whose
+# code, data or parameters changed; `dvc.lock` records the hash of every output.
+stages:
+  download:
+    cmd: python -m bikeflow.ml download
+    deps:
+      - src/bikeflow/ml/data/download.py
+    params:
+      - data.url
+      - data.csv_name
+      - data.expected_sha256
+    outs:
+      - data/raw/SeoulBikeData.csv
+      - data/raw/dataset_meta.json
+
+  preprocess:
+    cmd: python -m bikeflow.ml preprocess
+    deps:
+      - data/raw/SeoulBikeData.csv
+      - src/bikeflow/ml/data/preprocess.py
+      - src/bikeflow/ml/features.py
+    params:
+      - data.encoding
+      - data.expected_rows
+    outs:
+      - data/processed/dataset.parquet
+
+  split:
+    cmd: python -m bikeflow.ml split
+    deps:
+      - data/processed/dataset.parquet
+      - src/bikeflow/ml/data/split.py
+    params:
+      - split
+    outs:
+      - data/processed/train.parquet
+      - data/processed/validation.parquet
+      - data/processed/test.parquet
+
+  train:
+    cmd: python -m bikeflow.ml train --no-figures
+    deps:
+      - data/raw/dataset_meta.json
+      - data/processed/dataset.parquet
+      - data/processed/train.parquet
+      - data/processed/validation.parquet
+      - data/processed/test.parquet
+      - src/bikeflow/ml
+    params:
+      - seed
+      - target
+      - features
+      - business_metric
+      - models
+      - selection
+    outs:
+      - models/model.joblib
+      - models/mlp_embedding.joblib
+      - models/mlp_onehot.joblib
+      - models/hgb.joblib
+      - models/seasonal_median.joblib
+      - reports/cv_folds.csv
+      - reports/cv_summary.csv
+      - reports/metrics_by_season.csv
+      - reports/metrics_by_hour.csv
+      - reports/model_selection.md:
+          cache: false
+    metrics:
+      - reports/metrics.json:
+          cache: false

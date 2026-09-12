@@ -179,12 +179,14 @@ def write_reports(
         "models": results,
     }
     (reports / "metrics.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
-    cv_scores.to_csv(reports / "cv_folds.csv", index=False)
-    cv_summary.to_csv(reports / "cv_summary.csv", index=False)
-    slices["season"].to_csv(reports / "metrics_by_season.csv", index=False)
-    slices["hour"].to_csv(reports / "metrics_by_hour.csv", index=False)
+    cv_scores.to_csv(reports / "cv_folds.csv", index=False, lineterminator="\n")
+    cv_summary.to_csv(reports / "cv_summary.csv", index=False, lineterminator="\n")
+    slices["season"].to_csv(reports / "metrics_by_season.csv", index=False, lineterminator="\n")
+    slices["hour"].to_csv(reports / "metrics_by_hour.csv", index=False, lineterminator="\n")
 
     validation = results[main_kind]["validation"]
     test = results[main_kind]["test"]
@@ -224,7 +226,9 @@ def write_reports(
             f"- `{kind}`: {model.n_parameters():,} параметров, "
             f"лучшая эпоха {model.best_epoch_} из {len(model.history_)}"
         )
-    (reports / "model_selection.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (reports / "model_selection.md").write_text(
+        "\n".join(lines) + "\n", encoding="utf-8", newline="\n"
+    )
     print(f"[reports] wrote metrics, CV and slice reports -> {reports}")
 
 

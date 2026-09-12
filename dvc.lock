@@ -1,0 +1,223 @@
+schema: '2.0'
+stages:
+  download:
+    cmd: python -m bikeflow.ml download
+    deps:
+    - path: src/bikeflow/ml/data/download.py
+      hash: md5
+      md5: fa05db8e41207ffe48119f8d9a1941a9
+      size: 3058
+    params:
+      params.yaml:
+        data.csv_name: SeoulBikeData.csv
+        data.expected_sha256: 
+          373339b71a8935d69e9af0abf26a70744632119862eeb3919efb389a7b749c60
+        data.url: 
+          https://archive.ics.uci.edu/static/public/560/seoul+bike+sharing+demand.zip
+    outs:
+    - path: data/raw/SeoulBikeData.csv
+      hash: md5
+      md5: bf632307dcb419f67df589faaa0318e1
+      size: 604166
+    - path: data/raw/dataset_meta.json
+      hash: md5
+      md5: bc25b2ae034181b695ee2efb0d05ef01
+      size: 291
+  preprocess:
+    cmd: python -m bikeflow.ml preprocess
+    deps:
+    - path: data/raw/SeoulBikeData.csv
+      hash: md5
+      md5: bf632307dcb419f67df589faaa0318e1
+      size: 604166
+    - path: src/bikeflow/ml/data/preprocess.py
+      hash: md5
+      md5: 8ce666f67198b0e75fa6ec44948d7b49
+      size: 5535
+    - path: src/bikeflow/ml/features.py
+      hash: md5
+      md5: 471b6763f614751d81bb4c33583e4837
+      size: 11488
+    params:
+      params.yaml:
+        data.encoding: cp1252
+        data.expected_rows: 8760
+    outs:
+    - path: data/processed/dataset.parquet
+      hash: md5
+      md5: 976573969171784958b41fe39c74dc48
+      size: 187889
+  split:
+    cmd: python -m bikeflow.ml split
+    deps:
+    - path: data/processed/dataset.parquet
+      hash: md5
+      md5: 976573969171784958b41fe39c74dc48
+      size: 187889
+    - path: src/bikeflow/ml/data/split.py
+      hash: md5
+      md5: f867a0a06ad261e4630d939521c65a1b
+      size: 3610
+    params:
+      params.yaml:
+        split:
+          train:
+          - '2017-12-01'
+          - '2018-07-31'
+          validation:
+          - '2018-08-01'
+          - '2018-09-30'
+          test:
+          - '2018-10-01'
+          - '2018-11-30'
+    outs:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 1f0a52cd809bbb00d4a36bc085310c9f
+      size: 45514
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: 625264550d6f6aa9041c308640bd9862
+      size: 132267
+    - path: data/processed/validation.parquet
+      hash: md5
+      md5: f4a5864fbe42fd8133bf6eb7699a1bb2
+      size: 44710
+  train:
+    cmd: python -m bikeflow.ml train --no-figures
+    deps:
+    - path: data/processed/dataset.parquet
+      hash: md5
+      md5: 976573969171784958b41fe39c74dc48
+      size: 187889
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 1f0a52cd809bbb00d4a36bc085310c9f
+      size: 45514
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: 625264550d6f6aa9041c308640bd9862
+      size: 132267
+    - path: data/processed/validation.parquet
+      hash: md5
+      md5: f4a5864fbe42fd8133bf6eb7699a1bb2
+      size: 44710
+    - path: data/raw/dataset_meta.json
+      hash: md5
+      md5: bc25b2ae034181b695ee2efb0d05ef01
+      size: 291
+    - path: src/bikeflow/ml
+      hash: md5
+      md5: caf62d95c54fdb5fe3a8b4712d803938.dir
+      size: 80115
+      nfiles: 20
+    params:
+      params.yaml:
+        business_metric:
+          under_weight: 3.0
+          over_weight: 1.0
+        features:
+          categorical:
+          - hour
+          - day_of_week
+          - season
+          numeric:
+          - temperature
+          - humidity
+          - wind_speed
+          - visibility
+          - dew_point
+          - solar_radiation
+          - rainfall
+          - snowfall
+          - is_holiday
+        models:
+          baseline:
+            keys:
+            - hour
+            - day_of_week
+          hgb:
+            loss: poisson
+            max_iter: 400
+            learning_rate: 0.06
+            max_leaf_nodes: 31
+            min_samples_leaf: 20
+            l2_regularization: 1.0
+            early_stopping: true
+            n_iter_no_change: 30
+          mlp:
+            encodings:
+            - onehot
+            - embedding
+            embedding_dims:
+              hour: 4
+              day_of_week: 3
+              month: 3
+              season: 2
+            hidden:
+            - 128
+            - 64
+            dropout: 0.1
+            learning_rate: 0.003
+            weight_decay: 0.0001
+            batch_size: 256
+            max_epochs: 300
+            patience: 25
+        seed: 42
+        selection:
+          strategy: rolling_cv
+          metric: mae
+          inner_weeks: 6
+          folds:
+          - - '2018-04-01'
+            - '2018-05-31'
+          - - '2018-06-01'
+            - '2018-07-31'
+          - - '2018-08-01'
+            - '2018-09-30'
+        target: rented_bike_count
+    outs:
+    - path: models/hgb.joblib
+      hash: md5
+      md5: 5b547ab6c1167698da14d2bf8d4349c5
+      size: 379272
+    - path: models/mlp_embedding.joblib
+      hash: md5
+      md5: b37d8ae9ca72585e8261ef840cc4503b
+      size: 47560
+    - path: models/mlp_onehot.joblib
+      hash: md5
+      md5: 9e8cfbbf07d70d931cb34ef7d5f64219
+      size: 57982
+    - path: models/model.joblib
+      hash: md5
+      md5: b37d8ae9ca72585e8261ef840cc4503b
+      size: 47560
+    - path: models/seasonal_median.joblib
+      hash: md5
+      md5: 9d0fd0fedfcc49af1ed7cc55c16209c2
+      size: 2623
+    - path: reports/cv_folds.csv
+      hash: md5
+      md5: 84e8830c723209eedd2cf97f89684a65
+      size: 960
+    - path: reports/cv_summary.csv
+      hash: md5
+      md5: 6d710893129646b55a6331f7a3b051e0
+      size: 327
+    - path: reports/metrics.json
+      hash: md5
+      md5: fc13fd6807302d2060844fa8a591f864
+      size: 7526
+    - path: reports/metrics_by_hour.csv
+      hash: md5
+      md5: 7b2ccc1ea80c84c5f58851d6534b65e8
+      size: 37905
+    - path: reports/metrics_by_season.csv
+      hash: md5
+      md5: 7d52075086ab4ee75b35b44f56ec2368
+      size: 3861
+    - path: reports/model_selection.md
+      hash: md5
+      md5: 4fdbf21abd2045f1e868b47f60089da6
+      size: 2561

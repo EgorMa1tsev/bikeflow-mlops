@@ -1,4 +1,4 @@
-.PHONY: install install-ml lint format test run docker-build data cv train evaluate
+.PHONY: install install-ml lint format test run docker-build repro data cv train evaluate
 
 install:
 	python -m pip install -e ".[dev]"
@@ -6,7 +6,7 @@ install:
 
 install-ml:
 	python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
-	python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp]"
+	python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp,dvc]"
 
 lint:
 	ruff check .
@@ -26,7 +26,10 @@ docker-build:
 	docker build --tag bikeflow:local .
 
 # --- data / model pipeline -------------------------------------------------
-# Requires the `ml` extra: make install-ml
+# Requires the `ml` and `dvc` extras: make install-ml
+
+repro:
+	dvc repro
 
 data:
 	python -m bikeflow.ml download

@@ -1,0 +1,9 @@
+# One line-ending convention on every OS. DVC 3 hashes file bytes, so CRLF on
+# Windows and LF on Linux would make identical code look changed.
+* text=auto eol=lf
+
+*.joblib binary
+*.parquet binary
+*.png binary
+*.pdf binary
+*.zip binary
