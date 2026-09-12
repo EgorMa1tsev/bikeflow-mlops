@@ -294,6 +294,14 @@ def run_training(save: bool = True, figures: bool = True) -> dict[str, Any]:
         production = promote(models_dir / f"{main_kind}.joblib")
         print(f"[save] production MLP artifact -> {production}")
         write_reports(results, slices, main_kind, models, data, cv_scores)
+
+        # Imported here so modules that only reuse training helpers do not pull in MLflow.
+        from .tracking import log_training_run
+
+        run_id, version = log_training_run(
+            results, cv_scores, main_kind, production, data["test"]["raw"]
+        )
+        print(f"[mlflow] run {run_id}, registered version {version}")
         if figures:
             make_figures(models[main_kind], data, main_kind)
 

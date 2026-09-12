@@ -23,7 +23,7 @@ RUN python -m pip install --no-deps . && python -m pip check
 FROM base AS training
 
 RUN python -m pip install --constraint requirements/runtime-py311.lock \
-        matplotlib==3.10.0 pyarrow==18.1.0 requests==2.32.3 tabulate==0.9.0
+        matplotlib==3.10.0 mlflow==3.16.0 pyarrow==18.1.0 requests==2.32.3 tabulate==0.9.0
 
 CMD ["python", "-m", "bikeflow.ml", "train", "--no-figures"]
 

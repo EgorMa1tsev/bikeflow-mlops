@@ -108,9 +108,9 @@ stages:
       size: 291
     - path: src/bikeflow/ml
       hash: md5
-      md5: caf62d95c54fdb5fe3a8b4712d803938.dir
-      size: 80115
-      nfiles: 20
+      md5: 19051cea2ebd7a998253d1224f5e073f.dir
+      size: 86916
+      nfiles: 21
     params:
       params.yaml:
         business_metric:
@@ -179,24 +179,24 @@ stages:
     outs:
     - path: models/hgb.joblib
       hash: md5
-      md5: 5b547ab6c1167698da14d2bf8d4349c5
-      size: 379272
+      md5: e8b57c86ce9d0b43da14d52f171bcc01
+      size: 379267
     - path: models/mlp_embedding.joblib
       hash: md5
-      md5: b37d8ae9ca72585e8261ef840cc4503b
-      size: 47560
+      md5: f20c6fdd15f814801d67903ef2af74d6
+      size: 47555
     - path: models/mlp_onehot.joblib
       hash: md5
-      md5: 9e8cfbbf07d70d931cb34ef7d5f64219
-      size: 57982
+      md5: ad5f5524edcb02ce1bb363c9eaa2b5f4
+      size: 57975
     - path: models/model.joblib
       hash: md5
-      md5: b37d8ae9ca72585e8261ef840cc4503b
-      size: 47560
+      md5: f20c6fdd15f814801d67903ef2af74d6
+      size: 47555
     - path: models/seasonal_median.joblib
       hash: md5
-      md5: 9d0fd0fedfcc49af1ed7cc55c16209c2
-      size: 2623
+      md5: 72d9fc7ccb757f286107b32dcf114589
+      size: 2617
     - path: reports/cv_folds.csv
       hash: md5
       md5: 84e8830c723209eedd2cf97f89684a65
@@ -207,7 +207,7 @@ stages:
       size: 327
     - path: reports/metrics.json
       hash: md5
-      md5: fc13fd6807302d2060844fa8a591f864
+      md5: 7728075927d4e543b61b1bc0ccee9cf3
       size: 7526
     - path: reports/metrics_by_hour.csv
       hash: md5
@@ -219,5 +219,5 @@ stages:
       size: 3861
     - path: reports/model_selection.md
       hash: md5
-      md5: 4fdbf21abd2045f1e868b47f60089da6
+      md5: 3d6c3298ed0d8823ba9ac1aa6df92331
       size: 2561

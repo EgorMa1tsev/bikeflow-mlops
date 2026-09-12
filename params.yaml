@@ -30,6 +30,14 @@ selection:
     - ["2018-06-01", "2018-07-31"]
     - ["2018-08-01", "2018-09-30"]
 
+# MLflow: one run per training; the champion is registered as a new version of
+# `registered_model` and receives `alias`. The store is set by MLFLOW_TRACKING_URI,
+# or a local mlflow.db file when it is unset.
+tracking:
+  experiment: bikeflow
+  registered_model: bikeflow-demand
+  alias: champion
+
 target: rented_bike_count
 
 features:
