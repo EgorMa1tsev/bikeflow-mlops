@@ -1,121 +1,227 @@
 # BikeFlow
 
-BikeFlow — публичный учебный MLOps-проект для прогноза почасового спроса на
-велопрокат в Сеуле. Первый вертикальный срез проходит весь путь: официальный
-датасет UCI → хронологическая проверка → rolling-origin model selection → единый
-MLP-артефакт preprocessing + model → FastAPI `/predict` → Docker.
+Прогноз почасового спроса на городской велопрокат в Сеуле. Учебный MLOps-проект: путь от
+исходных данных до модели, которая отвечает на HTTP-запросы из Docker-контейнера.
 
-Участник A ([EgorMa1tsev](https://github.com/EgorMa1tsev)) отвечает за данные,
-признаки, обучение и оценку. Участница B
-([daya-alexandra](https://github.com/daya-alexandra)) — за репозиторий, API,
-интеграцию, тесты, CI и Docker.
+Модель предсказывает, сколько велосипедов возьмут в аренду за конкретный час, по дате, времени и
+погоде. Данные — [Seoul Bike Sharing Demand](https://archive.ics.uci.edu/dataset/560/seoul+bike+sharing+demand)
+(UCI): 8760 почасовых наблюдений за год, с декабря 2017 по ноябрь 2018.
 
-## Production-модель и путь запроса
+## Что уже работает
 
-Production-модель — PyTorch **MLP embedding**. HGB и seasonal median остаются
-сравниваемыми моделями. Выбор сделан по среднему MAE на трёх rolling-origin folds:
+- загрузка датасета с проверкой контрольной суммы, предобработка и проверки качества данных;
+- разбиение на train / validation / test строго по времени, без перемешивания;
+- четыре модели и автоматический выбор лучшей по скользящей валидации;
+- единый артефакт модели: предобработка и нейросеть в одном файле;
+- REST API на FastAPI с документацией OpenAPI (Swagger);
+- Docker-образ;
+- CI на GitHub Actions: линтер, тесты, сборка образа и проверка API в контейнере.
 
-| Модель | fold 1 | fold 2 | fold 3 | средний MAE |
-| --- | ---: | ---: | ---: | ---: |
-| **MLP embedding** | 409.0 | 376.4 | 381.6 | **389.0** |
-| HGB | 582.0 | 456.3 | 211.5 | 416.6 |
-| MLP one-hot | 475.2 | 357.7 | 431.1 | 421.3 |
-| seasonal median | 689.9 | 867.3 | 644.1 | 733.8 |
+## Как устроен прогноз
 
-MAE — основная метрика; WAPE публикуется как дополнительная. Test не участвует
-в выборе и оценивается только после фиксации победителя. В закреплённой
-интеграционной среде MLP embedding получила validation MAE/WAPE
-`184.303 / 0.190213`, test MAE/WAPE `191.095 / 0.224749`.
+```
+JSON-запрос → валидация → время в часовой пояс Сеула → календарные признаки
+            → предобработка → нейросеть → прогноз и версия модели
+```
 
-`JSON` → валидация → перевод времени в `Asia/Seoul` → календарные признаки →
-`InferencePipeline` из `BIKEFLOW_MODEL_PATH` → MLP embedding → прогноз и версия.
-Погоду пока передаёт пользователь; внешнего weather API нет.
+Время в запросе обязательно указывается с часовым поясом. Погоду передаёт пользователь.
 
-## Установка и обучение
+## Модель и качество
 
-Требуется Python 3.11. Прямые версии закреплены в `pyproject.toml`, runtime lock —
-в `requirements/runtime-py311.lock`. Для Linux CPU wheel PyTorch ставится из
-официального CPU-only index:
+Рабочая модель — нейросеть PyTorch с эмбеддингами для часа, дня недели и сезона
+(`mlp_embedding`).
+
+Лучшая модель выбирается по среднему **MAE** на трёх последовательных периодах
+(rolling-origin cross-validation): каждый раз модель обучается на прошлом и проверяется на
+следующих двух месяцах. Тестовая выборка в выборе не участвует.
+
+| Модель | Средний MAE по трём периодам |
+| --- | ---: |
+| **mlp_embedding** — нейросеть с эмбеддингами | **389.0** |
+| hgb — градиентный бустинг | 416.6 |
+| mlp_onehot — нейросеть с one-hot кодированием | 421.3 |
+| seasonal_median — медиана по часу и дню недели | 733.8 |
+
+На тестовой выборке (октябрь–ноябрь 2018) рабочая модель показывает **MAE 191.1** и
+**WAPE 0.225**. MAE — основная метрика, ошибка в арендах за час. WAPE — дополнительная, ошибка
+в долях от суммарного спроса.
+
+Цифры взяты из `reports/model_selection.md`. При обучении на другой системе они могут немного
+отличаться.
+
+## Из чего состоит проект
+
+Структура каталогов основана на шаблоне
+[cookiecutter-data-science](https://github.com/drivendataorg/cookiecutter-data-science).
+
+```
+bikeflow-mlops/
+├── params.yaml             все настройки: даты разбиения, признаки, параметры моделей
+├── pyproject.toml          зависимости и настройки линтера
+├── requirements/           зафиксированные версии пакетов для Python 3.11
+├── Dockerfile              образ API и отдельная стадия для обучения
+├── compose.yaml            локальный запуск API в Docker
+├── Makefile                короткие команды для Linux и macOS
+│
+├── src/bikeflow/
+│   ├── api/                FastAPI: эндпоинты /health и /predict, схемы запросов
+│   ├── model/              связка API с обученной моделью
+│   └── ml/                 данные и обучение
+│       ├── data/           загрузка, предобработка, разбиение по времени
+│       ├── models/         baseline, градиентный бустинг, нейросеть, формат артефакта
+│       ├── training/       обучение, скользящая валидация, выбор модели
+│       ├── features.py     единый контракт признаков для обучения и API
+│       ├── pipeline.py     предобработка и модель в одном объекте
+│       ├── metrics.py      MAE, WAPE, RMSE, бизнес-метрика
+│       └── cli.py          команды python -m bikeflow.ml ...
+│
+├── tests/                  тесты API, модели и пайплайна
+├── scripts/                вспомогательные скрипты для CI
+├── docs/model/             описание модели и данных
+├── reports/                метрики последнего обучения
+├── data/                   датасет — создаётся командами, в git не хранится
+├── models/                 обученные модели — создаются командами, в git не хранятся
+└── .github/workflows/      CI
+```
+
+## Запуск
+
+### 1. Установка
+
+Нужен **Python 3.11** — под него зафиксированы версии пакетов, CI и Docker-образ.
+
+Windows (PowerShell):
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+Linux и macOS:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
-python -m pip install --constraint requirements/runtime-py311.lock \
-  torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
+
+Дальше одинаково на всех системах:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp]"
-python -m bikeflow.ml download
-python -m bikeflow.ml preprocess
-python -m bikeflow.ml split
-python -m bikeflow.ml train --no-figures
 ```
 
-`python -m bikeflow.ml cv` отдельно повторяет rolling-origin сравнение. Загрузчик
-проверяет SHA256 исходного CSV. Данные и `.joblib`-артефакты Git игнорирует.
+PyTorch ставится отдельной командой из CPU-индекса: обычная сборка тянет CUDA на несколько
+гигабайт, а видеокарта проекту не нужна.
 
-Seed и версии зависимостей фиксируются и пишутся в metadata. Это повышает
-воспроизводимость, но проект не обещает bit-for-bit совпадение двух независимых
-обучений на разных системах.
+Если Python 3.11 не установлен, окружение можно создать через [uv](https://docs.astral.sh/uv/)
+вместо первой команды: `uv venv --python 3.11 --seed .venv` — uv сам скачает Python 3.11.
 
-## API
+**Окружение нужно активировать в каждом новом окне терминала.** Признак, что оно активно, —
+`(.venv)` в начале строки.
 
-Путь по умолчанию — `models/model.joblib`; его можно изменить:
+### 2. Данные и обучение
 
 ```bash
-BIKEFLOW_MODEL_PATH=models/model.joblib uvicorn bikeflow.api.main:app \
-  --host 127.0.0.1 --port 8000
+python -m bikeflow.ml download     # скачать датасет с UCI
+python -m bikeflow.ml preprocess   # проверить данные и привести их к единому виду
+python -m bikeflow.ml split        # разбить на train / validation / test по времени
+python -m bikeflow.ml train        # обучить модели, выбрать лучшую и сохранить её
 ```
 
-Модель загружается лениво после успешной валидации первого запроса и затем
-переиспользуется; API не обучает модель при запросах.
+Обучение занимает около минуты на обычном ноутбуке. Результат — `models/model.joblib` и отчёты
+в `reports/`.
+
+Все четыре команды нужны один раз, по порядку. Дальше обычно достаточно только `train`, например
+после изменения `params.yaml`. Команда `python -m bikeflow.ml cv` отдельно показывает сравнение
+моделей по трём периодам.
+
+### 3. Проверка качества и прогноз из командной строки
 
 ```bash
-curl -X POST http://127.0.0.1:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prediction_time":"2026-07-15T08:00:00+09:00",
-    "temperature_c":24.5,
-    "humidity_pct":61,
-    "wind_speed_m_s":1.8,
-    "visibility_10m":1800,
-    "dew_point_c":16.4,
-    "solar_radiation_mj_m2":1.2,
-    "rainfall_mm":0,
-    "snowfall_cm":0,
-    "holiday":false,
-    "functioning_day":true
-  }'
+python -m bikeflow.ml evaluate --split test
+python -m bikeflow.ml predict --input data/processed/test.parquet --output reports/predictions.csv
 ```
 
-`prediction_time` обязан содержать timezone; время нормализуется в
-`Asia/Seoul`. Неверное тело и значения вне общего API/ML-контракта получают
-`422`. Swagger UI: <http://127.0.0.1:8000/docs>.
+Первая команда выводит метрики на тестовой выборке с разбивкой по сезону, выходным и дождю.
+Вторая считает прогноз для каждой строки файла.
 
-## Docker и проверки
+### 4. API
 
-Serving-образ — `python:3.11-slim` с CPU-only PyTorch и без training/reporting
-зависимостей. Compose монтирует локальный артефакт read-only:
+```bash
+uvicorn bikeflow.api.main:app --host 127.0.0.1 --port 8000
+```
+
+API загружает модель из `models/model.joblib`. Путь можно изменить переменной окружения
+`BIKEFLOW_MODEL_PATH`.
+
+Документация и форма для запросов: <http://127.0.0.1:8000/docs> → `POST /predict` →
+**Try it out**. Пример тела запроса:
+
+```json
+{
+  "prediction_time": "2018-12-01T18:00:00+09:00",
+  "temperature_c": 3.5,
+  "humidity_pct": 45,
+  "wind_speed_m_s": 1.2,
+  "visibility_10m": 2000,
+  "dew_point_c": -7.0,
+  "solar_radiation_mj_m2": 0.0,
+  "rainfall_mm": 0.0,
+  "snowfall_cm": 0.0,
+  "holiday": false,
+  "functioning_day": true
+}
+```
+
+В ответе — прогноз `predicted_rentals` и версия модели `model_version`. Запрос без часового пояса
+или со значениями вне допустимых диапазонов получает ошибку `422`.
+
+### 5. Docker
+
+Сначала обучите модель (шаг 2): контейнер подключает готовый файл `models/model.joblib`.
 
 ```bash
 docker compose up --build
 ```
 
+API будет доступен по тому же адресу: <http://127.0.0.1:8000/docs>.
+
+### 6. Тесты и линтер
+
 ```bash
+pytest
 ruff check .
 ruff format --check .
-pytest
-docker build --tag bikeflow:local .
 ```
 
-CI выполняет `lint`, `tests`, `ml-tests`, `docker-build` и
-`docker-runtime-smoke`. Smoke-тест обучает небольшую настоящую MLP embedding,
-монтирует bundle и вызывает `/predict` по HTTP. Stub используется только как
-injected test double.
+## CI
+
+При каждом push в `main` GitHub Actions запускает:
+
+- `lint` — проверка кода линтером ruff;
+- `tests` — все тесты;
+- `ml-tests` — тесты данных и модели;
+- `docker-build` — сборка Docker-образа;
+- `docker-runtime-smoke` — обучает небольшую модель, поднимает API в Docker и делает настоящий
+  запрос к `/predict`.
 
 ## Ограничения
 
-Нет автоматического получения погоды, DVC, MLflow, оркестратора, drift
-monitoring, автоматического переобучения и UI. Данные охватывают один город и
-один год; test целиком осенний, пики и дождь остаются сложными режимами.
-Подробности: [`docs/model/model_card.md`](docs/model/model_card.md),
-[`docs/contracts/model_api.md`](docs/contracts/model_api.md) и
-[`docs/teacher_demo_ru.md`](docs/teacher_demo_ru.md).
+- данные за один год и по одному городу, без разбивки по станциям;
+- тестовая выборка целиком осенняя, а осенних месяцев в обучении нет;
+- хуже всего модель предсказывает часы пик и дождливые часы;
+- погоду нужно передавать вручную — внешнего погодного сервиса нет.
+
+Подробнее: [описание модели](docs/model/model_card.md) и [описание данных](docs/model/data_card.md).
+
+## В разработке
+
+- версионирование данных и пайплайна в DVC;
+- трекинг экспериментов и реестр моделей в MLflow;
+- расчёт data drift, target drift и concept drift, отчёты о дрейфе;
+- мониторинг в Prometheus и Grafana;
+- переобучение модели вручную и автоматически при дрейфе;
+- веб-интерфейс;
+- развёртывание в Kubernetes через Argo CD.
