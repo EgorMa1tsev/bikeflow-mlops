@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
@@ -128,6 +129,20 @@ class DriftCheckResponse(BaseModel):
     reference_mae: float
     mae_ratio: float
     thresholds: dict[str, float]
+    retraining_started: bool = Field(
+        default=False, description="Concept drift started an automatic retraining."
+    )
+
+
+class RetrainingStatus(BaseModel):
+    """State of the background retraining and the outcome of the last finished run."""
+
+    state: str = Field(description="idle, running, finished or failed")
+    trigger: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class HealthResponse(BaseModel):

@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     model_path: Path = Path("models/model.joblib")
+    # Serve the model from the MLflow registry instead of `model_path`, e.g.
+    # "models:/bikeflow-demand@champion". Retraining needs it: promoting a model
+    # moves the alias, and the API reloads whatever the alias points to.
+    model_uri: str | None = None
+    retraining_dir: Path = Path("data/retraining")
     # SQLite journal of served predictions and the actual demand reported later.
     db_path: Path = Path("data/predictions.db")
     # Latest Evidently drift report.

@@ -114,6 +114,46 @@ def collect_metrics(
     return metrics
 
 
+def start_tracking() -> MlflowClient:
+    """Point MLflow at the configured store and experiment, creating it if needed."""
+    tracking = load_config()["tracking"]
+    uri = tracking_uri()
+    mlflow.set_tracking_uri(uri)
+    client = MlflowClient()
+    if client.get_experiment_by_name(tracking["experiment"]) is None:
+        client.create_experiment(tracking["experiment"], artifact_location=artifact_location(uri))
+    mlflow.set_experiment(tracking["experiment"])
+    return client
+
+
+def register_bundle(model_path: str | Path, example_frame: pd.DataFrame) -> str:
+    """Log a joblib bundle as a pyfunc model in the active run and register a new version."""
+    model_path = Path(model_path)
+    predictor = Predictor.load(model_path)
+    example = input_example(example_frame)
+    info = mlflow.pyfunc.log_model(
+        name="model",
+        python_model=BikeflowModel(),
+        artifacts={"bundle": str(model_path.resolve())},
+        signature=infer_signature(example, predictor.predict(example)),
+        input_example=example,
+        registered_model_name=load_config()["tracking"]["registered_model"],
+    )
+    return str(info.registered_model_version)
+
+
+def set_champion(client: MlflowClient, version: str) -> None:
+    """Move the serving alias to a registered version."""
+    tracking = load_config()["tracking"]
+    client.set_registered_model_alias(tracking["registered_model"], tracking["alias"], version)
+
+
+def load_registered(model_uri: str) -> Predictor:
+    """Load a registered model, e.g. `models:/bikeflow-demand@champion`, as a Predictor."""
+    mlflow.set_tracking_uri(tracking_uri())
+    return mlflow.pyfunc.load_model(model_uri).unwrap_python_model()._predictor
+
+
 def log_training_run(
     results: dict[str, dict[str, dict[str, float]]],
     cv_scores: pd.DataFrame,
@@ -127,20 +167,8 @@ def log_training_run(
     Returns the MLflow run id and the registered model version.
     """
     cfg = load_config()
-    tracking = cfg["tracking"]
-    uri = tracking_uri()
-    mlflow.set_tracking_uri(uri)
-    client = MlflowClient()
-
-    experiment = client.get_experiment_by_name(tracking["experiment"])
-    if experiment is None:
-        client.create_experiment(tracking["experiment"], artifact_location=artifact_location(uri))
-    mlflow.set_experiment(tracking["experiment"])
-
-    model_path = Path(model_path)
+    client = start_tracking()
     predictor = Predictor.load(model_path)
-    example = input_example(example_frame)
-    signature = infer_signature(example, predictor.predict(example))
 
     params: dict[str, Any] = {}
     for section in LOGGED_PARAM_SECTIONS:
@@ -163,15 +191,7 @@ def log_training_run(
             if (reports / name).exists():
                 mlflow.log_artifact(str(reports / name), artifact_path="reports")
 
-        info = mlflow.pyfunc.log_model(
-            name="model",
-            python_model=BikeflowModel(),
-            artifacts={"bundle": str(model_path.resolve())},
-            signature=signature,
-            input_example=example,
-            registered_model_name=tracking["registered_model"],
-        )
+        version = register_bundle(model_path, example_frame)
 
-    version = str(info.registered_model_version)
-    client.set_registered_model_alias(tracking["registered_model"], tracking["alias"], version)
+    set_champion(client, version)
     return run.info.run_id, version

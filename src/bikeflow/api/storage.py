@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS drift_checks (
     checked_at TEXT NOT NULL,
     result TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS retrainings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    finished_at TEXT NOT NULL,
+    result TEXT NOT NULL
+);
 """
 
 
@@ -172,6 +177,32 @@ class PredictionStore:
                 (model_version, start),
             ).fetchall()
         return [_row_to_prediction(row) for row in rows]
+
+    def training_rows(self) -> list[StoredPrediction]:
+        """Every entry with an actual demand, oldest first — the data for retraining."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM predictions WHERE actual_rentals IS NOT NULL "
+                "ORDER BY prediction_time, id"
+            ).fetchall()
+        return [_row_to_prediction(row) for row in rows]
+
+    def add_retraining(self, result: Mapping[str, Any]) -> int:
+        """Store the outcome of a retraining and return its id."""
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "INSERT INTO retrainings (finished_at, result) VALUES (?, ?)",
+                (_now(), json.dumps(dict(result), ensure_ascii=False)),
+            )
+            return int(cursor.lastrowid)
+
+    def latest_retraining(self) -> dict[str, Any] | None:
+        """The most recent finished retraining, or None."""
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT result FROM retrainings ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return json.loads(row["result"]) if row else None
 
     def add_drift_check(self, result: Mapping[str, Any]) -> int:
         """Store the outcome of a drift check and return its id."""

@@ -2,13 +2,21 @@
 
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
-from bikeflow.api.dependencies import get_drift_report_path, get_predictor, get_store
+from bikeflow.api.dependencies import (
+    get_drift_report_path,
+    get_predictor,
+    get_retraining_manager,
+    get_store,
+)
+from bikeflow.api.retraining import RetrainingManager
 from bikeflow.api.schemas import (
     ActualRequest,
     DriftCheckResponse,
@@ -16,6 +24,7 @@ from bikeflow.api.schemas import (
     PredictionRecord,
     PredictionRequest,
     PredictionResponse,
+    RetrainingStatus,
 )
 from bikeflow.api.storage import PredictionStore, StoredPrediction
 from bikeflow.config import get_settings
@@ -52,6 +61,7 @@ def configure_logging() -> None:
 
 configure_logging()
 logger = logging.getLogger("bikeflow.api")
+SEOUL = ZoneInfo("Asia/Seoul")
 
 app = FastAPI(
     title="BikeFlow API",
@@ -141,15 +151,30 @@ def recent_predictions(
     return [_to_record(stored) for stored in store.recent(limit)]
 
 
+def _cooldown_over(store: PredictionStore, window_end: datetime) -> bool:
+    """True once `retraining.cooldown_hours` of new data followed the last retraining.
+
+    Measured in data time, not wall time, so replayed traffic behaves like live.
+    """
+    last = store.latest_retraining()
+    if last is None:
+        return True
+    last_end = datetime.fromisoformat(last["holdout_end"])
+    current = window_end.astimezone(SEOUL).replace(tzinfo=None)
+    return current >= last_end + timedelta(hours=load_config()["retraining"]["cooldown_hours"])
+
+
 @app.post("/drift/check", response_model=DriftCheckResponse, status_code=status.HTTP_200_OK)
 def run_drift_check(
     predictor: Annotated[Predictor, Depends(get_predictor)],
     store: Annotated[PredictionStore, Depends(get_store)],
     report_path: Annotated[Path, Depends(get_drift_report_path)],
+    retraining: Annotated[RetrainingManager, Depends(get_retraining_manager)],
 ) -> DriftCheckResponse:
     """Check data, target and concept drift over the latest journal window.
 
-    Writes an Evidently HTML report available at `GET /drift/report`.
+    Writes an Evidently HTML report available at `GET /drift/report`. Concept drift
+    starts an automatic retraining when that is enabled.
     """
 
     reference_source = getattr(predictor, "monitoring_reference", None)
@@ -186,7 +211,50 @@ def run_drift_check(
         result.concept_drift,
         result.mae_ratio,
     )
-    return DriftCheckResponse(check_id=check_id, **payload)
+
+    retraining_started = False
+    if (
+        result.concept_drift
+        and retraining.enabled
+        and load_config()["retraining"]["auto"]
+        and _cooldown_over(store, result.window_end)
+    ):
+        retraining_started = retraining.start("drift")
+    return DriftCheckResponse(check_id=check_id, retraining_started=retraining_started, **payload)
+
+
+@app.post("/retrain", response_model=RetrainingStatus, status_code=status.HTTP_202_ACCEPTED)
+def start_retraining(
+    retraining: Annotated[RetrainingManager, Depends(get_retraining_manager)],
+) -> RetrainingStatus:
+    """Start retraining in the background; poll `GET /retrain/status` for the outcome."""
+
+    if not retraining.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Retraining needs the model to be served from the MLflow registry: "
+                "set BIKEFLOW_MODEL_URI, e.g. models:/bikeflow-demand@champion."
+            ),
+        )
+    if not retraining.start("manual"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Retraining is already running."
+        )
+    return RetrainingStatus(**retraining.status())
+
+
+@app.get("/retrain/status", response_model=RetrainingStatus, status_code=status.HTTP_200_OK)
+def retraining_status(
+    retraining: Annotated[RetrainingManager, Depends(get_retraining_manager)],
+    store: Annotated[PredictionStore, Depends(get_store)],
+) -> RetrainingStatus:
+    """The running retraining, or the last finished one if none is running."""
+
+    current = retraining.status()
+    if current["state"] == "idle":
+        current["result"] = store.latest_retraining()
+    return RetrainingStatus(**current)
 
 
 @app.get("/drift/latest", response_model=DriftCheckResponse, status_code=status.HTTP_200_OK)

@@ -56,20 +56,35 @@ class BikeflowPredictor:
     non-negative float out, plus an immutable artifact version.
     """
 
-    def __init__(self, model_path: str | Path | None = None) -> None:
+    def __init__(self, model_path: str | Path | None = None, model_uri: str | None = None) -> None:
         self._model_path = model_path
+        self._model_uri = model_uri
         self._predictor: Any | None = None
         self._model_version: str | None = None
 
     def _load(self) -> None:
-        """Delay disk I/O until after FastAPI has validated the request body."""
+        """Delay disk I/O until after FastAPI has validated the request body.
+
+        With a model URI the artifact comes from the MLflow registry, resolved at
+        load time, so a moved alias is picked up by the next load.
+        """
 
         if self._predictor is not None:
             return
-        from bikeflow.ml.inference import Predictor as MLPredictor
+        if self._model_uri:
+            from bikeflow.ml.training.tracking import load_registered
 
-        self._predictor = MLPredictor.load(self._model_path)
+            self._predictor = load_registered(self._model_uri)
+        else:
+            from bikeflow.ml.inference import Predictor as MLPredictor
+
+            self._predictor = MLPredictor.load(self._model_path)
         self._model_version = str(self._predictor.metadata["model_version"])
+
+    def ml_predictor(self) -> Any:
+        """The underlying training-side Predictor, needed to retrain the same kind of model."""
+        self._load()
+        return self._predictor
 
     @property
     def model_version(self) -> str:

@@ -38,6 +38,7 @@ SEOUL = "Asia/Seoul"
 EVENING_HOURS = range(17, 22)
 
 Post = Callable[[str, dict[str, Any]], dict[str, Any]]
+Get = Callable[[str], dict[str, Any]]
 
 
 class ReplayError(RuntimeError):
@@ -62,6 +63,16 @@ def http_post(base_url: str) -> Post:
             raise ReplayError(f"POST {path} -> HTTP {exc.code}: {detail}") from exc
 
     return post
+
+
+def http_get(base_url: str) -> Get:
+    """GET JSON from the API with the standard library only."""
+
+    def get(path: str) -> dict[str, Any]:
+        with urllib.request.urlopen(base_url.rstrip("/") + path, timeout=30) as response:
+            return json.load(response)
+
+    return get
 
 
 def load_hours(start: str | None = None, end: str | None = None) -> pd.DataFrame:
@@ -103,6 +114,8 @@ class ReplayStats:
     absolute_errors: list[float] = field(default_factory=list)
     drift_checks: int = 0
     concept_drift_alerts: int = 0
+    retrainings_started: int = 0
+    retrainings_promoted: int = 0
 
     @property
     def mae(self) -> float | None:
@@ -121,12 +134,44 @@ def replay(
     report_every: int = 24,
     check_every: int = 0,
     log: Callable[[str], None] = print,
+    get: Get | None = None,
+    retraining_timeout: float = 600.0,
 ) -> ReplayStats:
     """Send each hour to the API and report its actual demand `delay_hours` later.
 
     With `check_every` set, a drift check runs after every that many reported
     hours, the way a scheduler would trigger it in production.
+
+    When a drift check starts a retraining and `get` is given, the replay waits
+    for it to finish. Replayed hours pass in milliseconds while training takes
+    seconds; in real time a retraining is instant next to an hour of traffic,
+    and waiting keeps that proportion, so the new model serves the hours after it.
     """
+
+    def wait_for_retraining() -> None:
+        deadline = time.monotonic() + retraining_timeout
+        status = get("/retrain/status")
+        while status["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(1.0)
+            status = get("/retrain/status")
+        if status["state"] == "running":
+            log("[retrain] переобучение идёт дольше таймаута, поток продолжается")
+            return
+        if status["state"] == "failed":
+            log(f"[retrain] переобучение упало: {status['error']}")
+            return
+        result = status["result"]
+        verdict = (
+            "gate пройден, в работе новая модель"
+            if result["promoted"]
+            else "gate не пройден, модель прежняя"
+        )
+        log(
+            f"[retrain] MAE на отложенных часах {result['champion_mae']:.0f} -> "
+            f"{result['challenger_mae']:.0f} ({100 * result['improvement']:+.1f}%): {verdict}"
+        )
+        stats.retrainings_promoted += bool(result["promoted"])
+
     stats = ReplayStats()
     pending: deque[tuple[pd.Timestamp, int, float, float]] = deque()
     delay = pd.Timedelta(hours=delay_hours)
@@ -159,6 +204,11 @@ def replay(
             f"data drift {'да' if result['data_drift'] else 'нет'}, "
             f"target drift {'да' if result['target_drift'] else 'нет'}"
         )
+        if result.get("retraining_started"):
+            stats.retrainings_started += 1
+            log("[drift] запущено переобучение")
+            if get is not None:
+                wait_for_retraining()
 
     for row in hours:
         moment = pd.Timestamp(row["timestamp"])
@@ -245,13 +295,16 @@ def main(argv: list[str] | None = None) -> int:
         boost=args.evening_boost,
         boost_from=boost_from,
         check_every=args.check_every,
+        get=http_get(args.api),
     )
     mae = f"{stats.mae:.1f}" if stats.mae is not None else "—"
     print(f"[replay] готово: прогнозов {stats.predictions}, фактов {stats.actuals}, MAE {mae}")
     if stats.drift_checks:
         print(
             f"[drift] проверок {stats.drift_checks}, "
-            f"из них с дрейфом модели {stats.concept_drift_alerts}"
+            f"из них с дрейфом модели {stats.concept_drift_alerts}, "
+            f"переобучений {stats.retrainings_started}, "
+            f"новая модель введена в работу {stats.retrainings_promoted} раз"
         )
     return 0
 

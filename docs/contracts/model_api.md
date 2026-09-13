@@ -105,4 +105,43 @@ FastAPI получает настоящий `BikeflowPredictor`, который 
 спроса и сами по себе переобучения не требуют.
 
 Production bundle содержит preprocessing и PyTorch MLP embedding. Погода сейчас передаётся
-пользователем. Обучение и переобучение не входят в inference-контракт.
+пользователем.
+
+## Переобучение
+
+Доступно, только когда задан `BIKEFLOW_MODEL_URI` (например, `models:/bikeflow-demand@champion`):
+API загружает модель из реестра MLflow, а переобучение переводит на новую версию метку `champion`.
+
+| Запрос | Ответ |
+| --- | --- |
+| `POST /retrain` | `202` и статус `running`; `409`, если переобучение уже идёт или `BIKEFLOW_MODEL_URI` не задан |
+| `GET /retrain/status` | статус текущего переобучения, а если оно не идёт — `idle` и результат последнего |
+
+`POST /drift/check` при `concept_drift` сам запускает переобучение, если `retraining.auto` включён и
+после прошлого переобучения прошло `retraining.cooldown_hours` данных; в ответе тогда
+`"retraining_started": true`.
+
+Статус:
+
+```json
+{
+  "state": "finished",
+  "trigger": "drift",
+  "started_at": "2026-09-13T01:13:30+00:00",
+  "finished_at": "2026-09-13T01:13:49+00:00",
+  "result": {
+    "champion_model_version": "mlp_embedding-373339b7-...",
+    "challenger_model_version": "mlp_embedding-ffe7b1b2-...",
+    "registered_version": "5",
+    "mlflow_run_id": "f606f051c723...",
+    "rows_fit": 7913, "rows_early_stopping": 72, "rows_holdout": 72,
+    "holdout_start": "2018-11-11T00:00:00", "holdout_end": "2018-11-13T23:00:00",
+    "champion_mae": 457.3, "challenger_mae": 377.0,
+    "improvement": 0.175, "min_improvement": 0.05,
+    "promoted": true
+  },
+  "error": null
+}
+```
+
+При `"promoted": true` следующий `/predict` уже отвечает новой версией (`model_version`).

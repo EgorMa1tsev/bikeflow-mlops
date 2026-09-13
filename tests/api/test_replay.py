@@ -181,3 +181,45 @@ def test_too_little_data_for_a_drift_check_does_not_stop_the_replay():
 
     assert stats.predictions == 3
     assert any("мало данных" in message for message in messages)
+
+
+def test_replay_waits_for_a_started_retraining_and_reports_the_gate():
+    messages = []
+    predict = recording_post([])
+    statuses = iter(
+        [
+            {"state": "running"},
+            {
+                "state": "finished",
+                "result": {
+                    "champion_mae": 450.0,
+                    "challenger_mae": 380.0,
+                    "improvement": 0.155,
+                    "promoted": True,
+                },
+            },
+        ]
+    )
+
+    checks = []
+
+    def post(path, body):
+        if path == "/drift/check":
+            checks.append(path)
+            # Only the first check starts one; the cooldown keeps the final check from repeating it.
+            return {**DRIFT_RESULT, "concept_drift": True, "retraining_started": len(checks) == 1}
+        return predict(path, body)
+
+    stats = replay(
+        rows(canonical_hours(2)),
+        post,
+        delay_hours=0,
+        check_every=2,
+        report_every=0,
+        log=messages.append,
+        get=lambda path: next(statuses),
+    )
+
+    assert stats.retrainings_started == 1
+    assert stats.retrainings_promoted == 1
+    assert any("gate пройден" in message for message in messages)

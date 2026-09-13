@@ -54,6 +54,25 @@ monitoring:
   drift_threshold: 0.1
   data_drift_share: 0.5
 
+# Retraining on history plus the production journal. The champion and the
+# challenger are compared on the latest `holdout_hours` of the journal, which the
+# challenger never sees; the `early_stopping_hours` before them drive early stopping.
+retraining:
+  auto: true                  # retrain when a drift check finds concept drift
+  # The last two windows of the journal stay out of training, so a shorter window
+  # lets a challenger learn a change sooner. Measured on the 2.5x November evening
+  # promotion: with 72 h windows the first challenger to pass the gate comes on
+  # 13 November (+17.6 %), with 168 h windows only on 25 November (+16.4 %).
+  holdout_hours: 72
+  early_stopping_hours: 72
+  # After a retraining, the next automatic one waits for this much new data, so a
+  # rejected challenger is not retried on every drift check.
+  cooldown_hours: 72
+  # Quality gate: the challenger replaces the champion only if it lowers holdout
+  # MAE by at least this share. Challengers that had not yet seen the change
+  # scored between -4.3 % and +3.1 %.
+  min_improvement: 0.05
+
 target: rented_bike_count
 
 features:
