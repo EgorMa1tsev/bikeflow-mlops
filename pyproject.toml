@@ -45,6 +45,12 @@ mlp = [
 dvc = [
     "dvc==3.67.1",
 ]
+# Streamlit interface. It talks to the API over HTTP; MLflow (extra `ml`) is only
+# needed for the experiments tab.
+ui = [
+    "requests==2.32.3",
+    "streamlit==1.55.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

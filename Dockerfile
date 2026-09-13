@@ -42,3 +42,17 @@ USER bikeflow
 EXPOSE 8000
 
 CMD ["uvicorn", "bikeflow.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM base AS ui
+
+# The interface is a plain HTTP client of the API, so it needs neither the model
+# nor the journal — only Streamlit on top of the shared package.
+RUN python -m pip install --constraint requirements/runtime-py311.lock \
+        requests==2.32.3 streamlit==1.55.0
+
+ENV BIKEFLOW_API_URL=http://api:8000
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "src/bikeflow/ui/app.py", \
+     "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]

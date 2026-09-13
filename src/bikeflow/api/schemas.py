@@ -149,3 +149,16 @@ class HealthResponse(BaseModel):
     """Liveness response."""
 
     status: str
+
+
+class ModelInfo(BaseModel):
+    """The model the API serves right now."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_version: str
+    source: str = Field(description="Where the artifact came from: registry or file.")
+    reference_mae: float | None = Field(
+        default=None, description="Validation MAE of this model; the yardstick for anomalies."
+    )
+    retraining_enabled: bool

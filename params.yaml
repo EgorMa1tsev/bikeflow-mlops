@@ -73,6 +73,13 @@ retraining:
   # scored between -4.3 % and +3.1 %.
   min_improvement: 0.05
 
+# Web interface. It only reads the API, so these are display choices.
+ui:
+  recent_limit: 100           # rows of the journal shown by default
+  # An error larger than this many reference MAEs is flagged as an anomaly. The
+  # model's own validation MAE is the yardstick, so the flag follows retraining.
+  anomaly_error_ratio: 3.0
+
 target: rented_bike_count
 
 features:

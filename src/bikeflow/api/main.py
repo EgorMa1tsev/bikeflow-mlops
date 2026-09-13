@@ -25,6 +25,7 @@ from bikeflow.api.schemas import (
     ActualRequest,
     DriftCheckResponse,
     HealthResponse,
+    ModelInfo,
     PredictionRecord,
     PredictionRequest,
     PredictionResponse,
@@ -102,6 +103,23 @@ def health() -> HealthResponse:
     """Report that the HTTP process is alive."""
 
     return HealthResponse(status="ok")
+
+
+@app.get("/model", response_model=ModelInfo, status_code=status.HTTP_200_OK)
+def model_info(
+    predictor: Annotated[Predictor, Depends(get_predictor)],
+    retraining: Annotated[RetrainingManager, Depends(get_retraining_manager)],
+) -> ModelInfo:
+    """Which model is being served, and the validation MAE it was accepted with."""
+
+    reference_source = getattr(predictor, "monitoring_reference", None)
+    _, reference_mae = reference_source() if reference_source else (None, None)
+    return ModelInfo(
+        model_version=predictor.model_version,
+        source="registry" if get_settings().model_uri else "file",
+        reference_mae=reference_mae,
+        retraining_enabled=retraining.enabled,
+    )
 
 
 @app.post("/predict", response_model=PredictionResponse, status_code=status.HTTP_200_OK)

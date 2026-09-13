@@ -1,6 +1,8 @@
 services:
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: bikeflow:local
     environment:
       BIKEFLOW_MODEL_PATH: /models/model.joblib
@@ -10,6 +12,18 @@ services:
       - journal:/var/lib/bikeflow
     ports:
       - "8000:8000"
+
+  ui:
+    build:
+      context: .
+      target: ui
+    image: bikeflow-ui:local
+    environment:
+      BIKEFLOW_API_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
 
   prometheus:
     image: prom/prometheus:v3.1.0

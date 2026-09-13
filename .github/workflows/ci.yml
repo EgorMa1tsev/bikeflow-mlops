@@ -32,7 +32,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
-      - run: python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp]"
+      - run: python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp,ui]"
       - run: pytest
 
   ml-tests:
@@ -59,6 +59,7 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
+          target: runtime
           push: false
           tags: bikeflow:ci
 
@@ -95,6 +96,14 @@ jobs:
             "http://127.0.0.1:8000/predictions/${id}/actual"
           curl --fail --silent --show-error "http://127.0.0.1:8000/predictions?limit=5" | tee journal.json
           python -c "import json; rows=json.load(open('journal.json')); assert rows[0]['actual_rentals'] == 500; assert rows[0]['absolute_error'] is not None"
+      - name: The web interface is served
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8501/_stcore/health
+
       - name: Drift monitoring is available in the image
         run: |
           docker compose exec -T api python -c "from evidently import Report; from evidently.presets import DataDriftPreset, RegressionPreset; print('evidently ok')"

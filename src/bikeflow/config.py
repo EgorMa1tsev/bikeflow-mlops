@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     db_path: Path = Path("data/predictions.db")
     # Latest Evidently drift report.
     monitoring_dir: Path = Path("data/monitoring")
+    # Where the Streamlit interface looks for the API.
+    api_url: str = "http://127.0.0.1:8000"
 
 
 @lru_cache
