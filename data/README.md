@@ -1,6 +1,6 @@
 # Data
 
-No dataset is committed to Git. Everything here is fetched and derived locally by `make data`.
+No dataset is committed to Git. Everything here is fetched and derived locally by `dvc repro` or `make data`.
 
 ```
 data/raw/SeoulBikeData.csv     downloaded from UCI, cp1252, dates DD/MM/YYYY
@@ -21,4 +21,5 @@ seasons, and the rule that a non-operating hour always has zero rentals.
 Full description of columns, units, split boundaries and known limitations:
 [`docs/model/data_card.md`](../docs/model/data_card.md).
 
-DVC is not wired up yet — it lands in a separate feature branch, on top of this pipeline.
+The same steps are the first three stages of the DVC pipeline in `dvc.yaml`: `dvc repro` runs
+them and reruns only what changed.

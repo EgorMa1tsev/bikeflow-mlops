@@ -70,6 +70,7 @@ class FakeResponse:
     def __init__(self, payload: Any, status_code: int = 200) -> None:
         self._payload = payload
         self.status_code = status_code
+        self.text = payload if isinstance(payload, str) else ""
 
     def json(self) -> Any:
         return self._payload
@@ -164,3 +165,14 @@ def test_the_retrain_button_is_hidden_without_the_registry(api):
 
     assert any("реестра MLflow" in warning.value for warning in app.warning)
     assert ("POST", "/retrain") not in calls
+
+
+def test_the_drift_report_is_fetched_through_the_api(api):
+    responses, calls = api
+    responses["/drift/report"] = "<html><body>Evidently report</body></html>"
+    app = AppTest.from_file(APP, default_timeout=60).run()
+
+    app.toggle[0].set_value(True).run()
+
+    assert not app.exception
+    assert ("GET", "/drift/report") in calls

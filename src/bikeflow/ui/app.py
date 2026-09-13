@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 from bikeflow.config import get_settings
 from bikeflow.ml.config import load_config
@@ -263,7 +264,14 @@ with monitoring_tab:
             ),
             hide_index=True,
         )
-        st.link_button("Открыть отчёт Evidently", api_url() + "/drift/report")
+        # The page fetches the report itself: in Kubernetes the API address is internal
+        # to the cluster, so a plain link would not open in the viewer's browser.
+        if st.toggle("Показать отчёт Evidently"):
+            report = requests.get(api_url() + "/drift/report", timeout=TIMEOUT)
+            if report.status_code == 200:
+                components.html(report.text, height=900, scrolling=True)
+            else:
+                st.info("Отчёта ещё нет: сначала проверьте дрейф.")
     else:
         st.info("Проверок дрейфа ещё не было.")
 
