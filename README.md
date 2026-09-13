@@ -496,7 +496,7 @@ Argo CD следит за веткой `main` и сам применяет ма�
 
 ```bash
 kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl wait --for=condition=available --timeout=300s deployment --all -n argocd
 kubectl apply -n argocd -f argocd/application.yaml
 ```
