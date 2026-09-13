@@ -1,0 +1,145 @@
+{
+  "uid": "bikeflow",
+  "title": "BikeFlow",
+  "tags": ["bikeflow"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Дрейф модели",
+      "description": "1 — последняя проверка нашла concept drift.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "bikeflow_concept_drift", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "в норме", "color": "green", "index": 0 },
+                "1": { "text": "ДРЕЙФ", "color": "red", "index": 1 }
+              }
+            }
+          ],
+          "noValue": "проверок не было"
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Ошибка модели: MAE окна и порог дрейфа",
+      "description": "MAE за последнее окно журнала и порог, при котором срабатывает concept drift.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 10, "x": 4, "y": 0 },
+      "targets": [
+        { "expr": "bikeflow_window_mae", "legendFormat": "MAE окна", "refId": "A" },
+        {
+          "expr": "bikeflow_drift_mae_ratio",
+          "legendFormat": "MAE / эталон",
+          "refId": "B"
+        },
+        {
+          "expr": "bikeflow_drift_mae_ratio_threshold",
+          "legendFormat": "порог",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 5 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "порог" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 8] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Переобучения",
+      "description": "Сколько раз новая модель прошла и не прошла quality gate.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 10, "x": 14, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (bikeflow_retrainings_total)",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value_and_name" }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Прогнозы в минуту по версии модели",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "expr": "60 * sum by (model_version) (rate(bikeflow_predictions_total[5m]))",
+          "legendFormat": "{{model_version}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Средняя абсолютная ошибка присланных фактов",
+      "description": "Средняя |прогноз − факт| по фактам, пришедшим за последние 5 минут.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "expr": "rate(bikeflow_absolute_error_sum[5m]) / rate(bikeflow_absolute_error_count[5m])",
+          "legendFormat": "MAE",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Запросы к API по маршрутам",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "targets": [
+        {
+          "expr": "60 * sum by (route, status) (rate(bikeflow_http_requests_total[5m]))",
+          "legendFormat": "{{route}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Время ответа /predict, 95-й перцентиль",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(bikeflow_http_request_duration_seconds_bucket{route=\"/predict\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    }
+  ]
+}

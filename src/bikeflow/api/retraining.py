@@ -14,6 +14,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from bikeflow.api.metrics import RETRAININGS
+
 logger = logging.getLogger("bikeflow.api.retraining")
 
 Job = Callable[[str], dict[str, Any]]
@@ -67,11 +69,13 @@ class RetrainingManager:
             logger.error("retraining_failed trigger=%s error=%s", trigger, exc)
             update = {"state": "failed", "error": f"{type(exc).__name__}: {exc}"}
             logger.debug(traceback.format_exc())
+            RETRAININGS.labels("failed").inc()
         else:
             logger.info(
                 "retraining_finished trigger=%s promoted=%s", trigger, result.get("promoted")
             )
             update = {"state": "finished", "result": result}
+            RETRAININGS.labels("promoted" if result.get("promoted") else "rejected").inc()
         with self._lock:
             self._state.update(update, finished_at=datetime.now(UTC).isoformat(timespec="seconds"))
 

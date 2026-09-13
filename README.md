@@ -23,6 +23,7 @@
 - поток новых данных: скрипт проигрывает октябрь–ноябрь 2018 через API по часам, с задержкой
   фактического спроса и сценарием управляемого дрейфа;
 - расчёт data drift, target drift и concept drift по журналу прогнозов, HTML-отчёты Evidently;
+- метрики для Prometheus и готовый дашборд Grafana: нагрузка, ошибка модели, дрейф, переобучения;
 - переобучение вручную и автоматически при concept drift: новая модель проходит quality gate и
   только тогда заменяет текущую в реестре MLflow и в API — без перезапуска;
 - Docker-образ;
@@ -76,11 +77,12 @@ bikeflow-mlops/
 ├── pyproject.toml          зависимости и настройки линтера
 ├── requirements/           зафиксированные версии пакетов для Python 3.11
 ├── Dockerfile              образ API и отдельная стадия для обучения
-├── compose.yaml            локальный запуск API в Docker
+├── compose.yaml            локальный запуск API, Prometheus и Grafana в Docker
+├── monitoring/             конфигурация Prometheus и дашборд Grafana
 ├── Makefile                короткие команды для Linux и macOS
 │
 ├── src/bikeflow/
-│   ├── api/                FastAPI: эндпоинты, схемы запросов, журнал прогнозов, запуск переобучения
+│   ├── api/                FastAPI: эндпоинты, схемы, журнал прогнозов, переобучение, метрики
 │   ├── model/              связка API с обученной моделью
 │   ├── monitoring/         расчёт дрейфа и отчёты Evidently
 │   ├── replay.py           поток новых данных: проигрывание часов через API
@@ -386,7 +388,7 @@ python -m bikeflow.replay --check-every 24 --evening-boost 2.5 --boost-from 2018
 переключения, 14–30 ноября, новая модель ошибается меньше старой: MAE 386 против 436. Все версии и
 их метрики видны в MLflow UI (шаг 3).
 
-### 9. Docker
+### 9. Docker, Prometheus и Grafana
 
 Сначала обучите модель (шаг 2): контейнер подключает готовый файл `models/model.joblib`.
 
@@ -394,7 +396,35 @@ python -m bikeflow.replay --check-every 24 --evening-boost 2.5 --boost-from 2018
 docker compose up --build
 ```
 
-API будет доступен по тому же адресу: <http://127.0.0.1:8000/docs>.
+Поднимаются три сервиса:
+
+| Сервис | Адрес | Что там |
+| --- | --- | --- |
+| API | <http://127.0.0.1:8000/docs> | те же эндпоинты, что и локально |
+| Prometheus | <http://127.0.0.1:9090> | собирает метрики API каждые 15 секунд |
+| Grafana | <http://127.0.0.1:3000> | дашборд **BikeFlow**, вход не нужен |
+
+Дашборд заведён заранее (`monitoring/grafana/`): дрейф модели, MAE окна против порога, прогнозы в
+минуту по версиям модели, средняя ошибка присланных фактов, запросы по маршрутам и время ответа
+`/predict`. Чтобы графики наполнились, пустите поток данных в контейнерный API:
+
+```bash
+python -m bikeflow.replay --api http://127.0.0.1:8000 --interval 0.2 --check-every 24
+```
+
+**Что отдаёт API.** `GET /metrics` — метрики в текстовом формате Prometheus:
+
+| Метрика | Что показывает |
+| --- | --- |
+| `bikeflow_predictions_total{model_version}` | сколько прогнозов сделала каждая версия модели |
+| `bikeflow_predicted_rentals` | распределение прогнозов |
+| `bikeflow_actuals_total`, `bikeflow_absolute_error` | присланные факты и ошибка прогноза |
+| `bikeflow_concept_drift`, `bikeflow_data_drift`, `bikeflow_target_drift` | результат последней проверки дрейфа |
+| `bikeflow_window_mae`, `bikeflow_drift_mae_ratio`, `bikeflow_drift_mae_ratio_threshold` | ошибка за окно и порог срабатывания |
+| `bikeflow_retrainings_total{outcome}` | переобучения: прошли gate, отклонены, упали |
+| `bikeflow_http_requests_total`, `bikeflow_http_request_duration_seconds` | запросы и время ответа по маршрутам |
+
+Значения дрейфа появляются после первой проверки `POST /drift/check`.
 
 ### 10. Тесты и линтер
 
@@ -426,6 +456,5 @@ ruff format --check .
 
 ## В разработке
 
-- мониторинг в Prometheus и Grafana;
 - веб-интерфейс;
 - развёртывание в Kubernetes через Argo CD.

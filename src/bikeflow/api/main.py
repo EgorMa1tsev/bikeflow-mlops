@@ -2,14 +2,18 @@
 
 import json
 import logging
+import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from bikeflow.api import metrics
 from bikeflow.api.dependencies import (
     get_drift_report_path,
     get_predictor,
@@ -70,6 +74,29 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def count_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Count every request and time it, labelled by route rather than by URL."""
+
+    started = time.perf_counter()
+    response = await call_next(request)
+    route = request.scope.get("route")
+    path = getattr(route, "path", "unmatched")
+    if path != "/metrics":
+        metrics.HTTP_REQUESTS.labels(request.method, path, response.status_code).inc()
+        metrics.HTTP_LATENCY.labels(request.method, path).observe(time.perf_counter() - started)
+    return response
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics() -> Response:
+    """Metrics for Prometheus to scrape."""
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/health", response_model=HealthResponse, status_code=status.HTTP_200_OK)
 def health() -> HealthResponse:
     """Report that the HTTP process is alive."""
@@ -99,6 +126,8 @@ def predict(
     logger.info(
         "prediction_completed id=%s model_version=%s", prediction_id, predictor.model_version
     )
+    metrics.PREDICTIONS.labels(predictor.model_version).inc()
+    metrics.PREDICTED_RENTALS.observe(prediction)
     return PredictionResponse(
         prediction_id=prediction_id,
         prediction_time=request.prediction_time,
@@ -138,6 +167,9 @@ def record_actual(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Prediction {prediction_id} not found.",
         )
+    metrics.ACTUALS.inc()
+    if stored.absolute_error is not None:
+        metrics.ABSOLUTE_ERROR.observe(stored.absolute_error)
     return _to_record(stored)
 
 
@@ -203,6 +235,7 @@ def run_drift_check(
 
     payload = result.to_dict()
     check_id = store.add_drift_check(payload)
+    metrics.record_drift_check(payload)
     logger.info(
         "drift_checked id=%s data=%s target=%s concept=%s mae_ratio=%.2f",
         check_id,

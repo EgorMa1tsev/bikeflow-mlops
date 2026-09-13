@@ -14,7 +14,8 @@ RUN python -m pip install --upgrade pip && \
         torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu && \
     python -m pip install --constraint requirements/runtime-py311.lock \
         evidently==0.7.23 fastapi==0.115.6 joblib==1.4.2 numpy==2.2.1 pandas==2.2.3 \
-        pydantic-settings==2.7.1 PyYAML==6.0.2 scikit-learn==1.6.1 uvicorn==0.34.0
+        prometheus-client==0.26.0 pydantic-settings==2.7.1 PyYAML==6.0.2 \
+        scikit-learn==1.6.1 uvicorn==0.34.0
 
 COPY pyproject.toml README.md params.yaml ./
 COPY src ./src
