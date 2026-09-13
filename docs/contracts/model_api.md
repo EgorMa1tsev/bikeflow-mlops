@@ -32,6 +32,23 @@ offset/timezone и перед построением календарных пр
 }
 ```
 
+## Что сейчас в работе
+
+`GET /model` описывает обслуживаемую модель — интерфейс берёт отсюда эталонную ошибку, чтобы
+помечать аномальные прогнозы:
+
+```json
+{
+  "model_version": "mlp_embedding-373339b7-...",
+  "source": "registry",
+  "reference_mae": 183.1,
+  "retraining_enabled": true
+}
+```
+
+`source` — `registry`, когда задан `BIKEFLOW_MODEL_URI`, иначе `file`. `GET /metrics` отдаёт метрики
+в формате Prometheus (список — в README).
+
 ## Журнал прогнозов
 
 Каждый успешный прогноз записывается в SQLite-журнал (`BIKEFLOW_DB_PATH`): входные

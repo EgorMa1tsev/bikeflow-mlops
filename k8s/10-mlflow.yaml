@@ -1,0 +1,68 @@
+# MLflow tracking server. It owns the experiment history and the model registry,
+# and serves model artifacts over HTTP, so the API, the training job and the web
+# interface only need its address — no shared filesystem between pods.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-store
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v3.16.0
+          command:
+            - mlflow
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            - --backend-store-uri=sqlite:////mlflow/mlflow.db
+            - --artifacts-destination=/mlflow/artifacts
+            - --serve-artifacts
+            # MLflow rejects unknown Host headers; other pods call it by service name.
+            - --allowed-hosts=mlflow,mlflow:5000,localhost,localhost:5000
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: store
+              mountPath: /mlflow
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: store
+          persistentVolumeClaim:
+            claimName: mlflow-store
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+spec:
+  selector:
+    app: mlflow
+  ports:
+    - port: 5000
+      targetPort: 5000

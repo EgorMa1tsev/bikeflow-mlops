@@ -81,6 +81,9 @@ bikeflow-mlops/
 ├── Dockerfile              образ API и отдельная стадия для обучения
 ├── compose.yaml            локальный запуск API, Prometheus и Grafana в Docker
 ├── monitoring/             конфигурация Prometheus и дашборд Grafana
+├── k8s/                    манифесты Kubernetes
+├── kustomization.yaml      сборка манифестов: kubectl apply -k .
+├── argocd/                 приложение Argo CD для непрерывной доставки
 ├── Makefile                короткие команды для Linux и macOS
 │
 ├── src/bikeflow/
@@ -454,7 +457,62 @@ python -m bikeflow.replay --api http://127.0.0.1:8000 --interval 0.2 --check-eve
 
 Значения дрейфа появляются после первой проверки `POST /drift/check`.
 
-### 11. Тесты и линтер
+### 11. Kubernetes
+
+Кластер — встроенный в Docker Desktop: **Settings → Kubernetes → Enable Kubernetes**. Образы берутся
+из GHCR, их публикует CI при попадании в `main`.
+
+```bash
+kubectl apply -k .
+kubectl get pods -n bikeflow -w
+```
+
+Разворачивается пять частей:
+
+| Объект | Что делает |
+| --- | --- |
+| `mlflow` | сервер трекинга и реестр моделей, история и артефакты на диске (PVC) |
+| Job `train` | один раз скачивает датасет, обучает модель и регистрирует её как `champion` |
+| `api` | FastAPI, берёт модель из реестра по метке `champion`, журнал на диске (PVC) |
+| `ui` | веб-интерфейс, <http://localhost:8501> |
+| `prometheus` + `grafana` | метрики и дашборд, <http://localhost:3000> |
+
+Первым запускается MLflow, затем Job обучения (около двух минут), и только после него API находит
+модель: до этого прогноз отвечает ошибкой, а после — сразу работает, перезапуск не нужен.
+
+Конфигурация Prometheus и дашборд Grafana берутся из тех же файлов `monitoring/`, что и в Compose:
+`kustomization.yaml` в корне репозитория превращает их в ConfigMap.
+
+Обучить заново (например, после изменения `params.yaml`):
+
+```bash
+kubectl delete job train -n bikeflow
+kubectl apply -k .
+```
+
+### 12. Argo CD
+
+Argo CD следит за веткой `main` и сам применяет манифесты — деплой сводится к merge в `main`.
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl wait --for=condition=available --timeout=300s deployment --all -n argocd
+kubectl apply -n argocd -f argocd/application.yaml
+```
+
+Интерфейс Argo CD:
+
+```bash
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+```
+
+<https://localhost:8080>, логин `admin` и пароль из второй команды. Приложение `bikeflow`
+синхронизируется автоматически: `prune` удаляет то, что удалено из репозитория, `selfHeal`
+возвращает ручные правки к состоянию из git.
+
+### 13. Тесты и линтер
 
 ```bash
 pytest
@@ -464,14 +522,16 @@ ruff format --check .
 
 ## CI
 
-При каждом push в `main` GitHub Actions запускает:
+При каждом push в любую ветку GitHub Actions запускает:
 
 - `lint` — проверка кода линтером ruff;
 - `tests` — все тесты;
 - `ml-tests` — тесты данных и модели;
 - `docker-build` — сборка Docker-образа;
-- `docker-runtime-smoke` — обучает небольшую модель, поднимает API в Docker и делает настоящий
-  запрос к `/predict`.
+- `docker-runtime-smoke` — обучает небольшую модель, поднимает API и веб-интерфейс в Docker и
+  делает настоящий запрос к `/predict`;
+- `publish` — только для `main`: собирает и публикует три образа в GHCR
+  (`ghcr.io/egorma1tsev/bikeflow-mlops:runtime`, `:ui`, `:training`). Их забирает Kubernetes.
 
 ## Ограничения
 
@@ -482,6 +542,3 @@ ruff format --check .
 
 Подробнее: [описание модели](docs/model/model_card.md) и [описание данных](docs/model/data_card.md).
 
-## В разработке
-
-- развёртывание в Kubernetes через Argo CD.

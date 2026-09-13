@@ -1,0 +1,37 @@
+# Deployment description for Kubernetes. It lives in the repository root so the
+# Prometheus configuration and the Grafana dashboard can be taken from the same
+# `monitoring/` files that Docker Compose mounts — one source, two ways to run.
+#
+#     kubectl apply -k .
+#
+# Argo CD points at this file too (argocd/application.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bikeflow
+
+resources:
+  - k8s/00-namespace.yaml
+  - k8s/10-mlflow.yaml
+  - k8s/20-train-job.yaml
+  - k8s/30-api.yaml
+  - k8s/40-ui.yaml
+  - k8s/50-prometheus.yaml
+  - k8s/60-grafana.yaml
+
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - monitoring/prometheus.yml
+  - name: grafana-datasources
+    files:
+      - monitoring/grafana/provisioning/datasources/prometheus.yml
+  - name: grafana-dashboard-provider
+    files:
+      - monitoring/grafana/provisioning/dashboards/dashboards.yml
+  - name: grafana-dashboards
+    files:
+      - monitoring/grafana/dashboards/bikeflow.json
+
+generatorOptions:
+  disableNameSuffixHash: true

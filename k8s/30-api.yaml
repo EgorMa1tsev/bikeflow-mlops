@@ -1,0 +1,76 @@
+# The API serves the model the `champion` alias points at, so a retraining that
+# passes the quality gate changes what it answers with, without a redeploy.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: api-journal
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1
+  # One writer for the SQLite journal, and retraining runs inside the pod.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/egorma1tsev/bikeflow-mlops:runtime
+          imagePullPolicy: Always
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5000
+            - name: BIKEFLOW_MODEL_URI
+              value: models:/bikeflow-demand@champion
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: journal
+              mountPath: /var/lib/bikeflow
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+      volumes:
+        - name: journal
+          persistentVolumeClaim:
+            claimName: api-journal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  selector:
+    app: api
+  ports:
+    - port: 8000
+      targetPort: 8000

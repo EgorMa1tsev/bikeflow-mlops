@@ -1,0 +1,25 @@
+# Continuous delivery: Argo CD watches `main` and applies whatever the
+# kustomization in the repository root renders, so a merge into main is the
+# deployment. Install once with:
+#
+#     kubectl apply -n argocd -f argocd/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bikeflow
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/EgorMa1tsev/bikeflow-mlops.git
+    targetRevision: main
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bikeflow
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

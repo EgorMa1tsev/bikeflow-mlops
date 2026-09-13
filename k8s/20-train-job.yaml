@@ -1,0 +1,38 @@
+# One-off job that fills an empty cluster: it downloads the dataset, runs the
+# pipeline and registers the champion in MLflow, which is where the API looks for
+# the model. Rerun it with `kubectl delete job/train -n bikeflow` + apply.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: train
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-mlflow
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - until wget -q -O- http://mlflow:5000/health; do echo waiting; sleep 3; done
+      containers:
+        - name: train
+          image: ghcr.io/egorma1tsev/bikeflow-mlops:training
+          imagePullPolicy: Always
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5000
+          command:
+            - sh
+            - -c
+            - >-
+              python -m bikeflow.ml download &&
+              python -m bikeflow.ml preprocess &&
+              python -m bikeflow.ml split &&
+              python -m bikeflow.ml train --no-figures
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi

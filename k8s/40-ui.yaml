@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        app: ui
+    spec:
+      containers:
+        - name: ui
+          image: ghcr.io/egorma1tsev/bikeflow-mlops:ui
+          imagePullPolicy: Always
+          env:
+            - name: BIKEFLOW_API_URL
+              value: http://api:8000
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5000
+          ports:
+            - containerPort: 8501
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+spec:
+  # Docker Desktop publishes a LoadBalancer service on localhost.
+  type: LoadBalancer
+  selector:
+    app: ui
+  ports:
+    - port: 8501
+      targetPort: 8501

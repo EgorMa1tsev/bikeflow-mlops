@@ -30,13 +30,21 @@ CMD ["python", "-m", "bikeflow.ml", "train", "--no-figures"]
 
 FROM base AS runtime
 
+# Retraining runs inside the API: it needs the MLflow client to read and register
+# models, and requests to fetch the dataset the challenger learns from.
+RUN python -m pip install --constraint requirements/runtime-py311.lock \
+        mlflow==3.16.0 requests==2.32.3
+
 # The API runs as an unprivileged user and cannot write under /app, so the
-# prediction journal gets its own directory owned by that user.
+# prediction journal and the dataset retraining downloads get their own
+# directories owned by that user.
 RUN addgroup --system bikeflow && adduser --system --ingroup bikeflow bikeflow && \
-    mkdir -p /var/lib/bikeflow && chown bikeflow:bikeflow /var/lib/bikeflow
+    mkdir -p /var/lib/bikeflow /app/data && \
+    chown bikeflow:bikeflow /var/lib/bikeflow /app/data
 
 ENV BIKEFLOW_DB_PATH=/var/lib/bikeflow/predictions.db \
-    BIKEFLOW_MONITORING_DIR=/var/lib/bikeflow/monitoring
+    BIKEFLOW_MONITORING_DIR=/var/lib/bikeflow/monitoring \
+    BIKEFLOW_RETRAINING_DIR=/var/lib/bikeflow/retraining
 
 USER bikeflow
 EXPOSE 8000
@@ -46,9 +54,10 @@ CMD ["uvicorn", "bikeflow.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 FROM base AS ui
 
 # The interface is a plain HTTP client of the API, so it needs neither the model
-# nor the journal — only Streamlit on top of the shared package.
+# nor the journal. mlflow-skinny is the MLflow client without its server, enough
+# for the experiments tab to list runs from a remote tracking server.
 RUN python -m pip install --constraint requirements/runtime-py311.lock \
-        requests==2.32.3 streamlit==1.55.0
+        mlflow-skinny==3.16.0 requests==2.32.3 streamlit==1.55.0
 
 ENV BIKEFLOW_API_URL=http://api:8000
 
