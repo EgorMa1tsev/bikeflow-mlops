@@ -96,8 +96,14 @@ def save_bundle(
     train_period: tuple[str, str] | None = None,
     training_params: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
+    reference: Any | None = None,
 ) -> Path:
-    """Write a model artifact. Returns the path written."""
+    """Write a model artifact. Returns the path written.
+
+    `reference` is an optional DataFrame the served model is monitored against:
+    validation rows with the model's own predictions. Keeping it inside the
+    artifact means a retrained model always carries a matching reference.
+    """
     destination = resolve(path)
     ensure_dir(destination.parent)
 
@@ -125,6 +131,7 @@ def save_bundle(
             **(extra or {}),
         },
         "metrics": metrics,
+        "reference": reference,
     }
     joblib.dump(bundle, destination, compress=3)
     return destination

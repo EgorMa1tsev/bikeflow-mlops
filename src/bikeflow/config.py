@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     model_path: Path = Path("models/model.joblib")
     # SQLite journal of served predictions and the actual demand reported later.
     db_path: Path = Path("data/predictions.db")
+    # Latest Evidently drift report.
+    monitoring_dir: Path = Path("data/monitoring")
 
 
 @lru_cache

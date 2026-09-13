@@ -17,7 +17,7 @@ import sqlite3
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS predictions (
     actual_recorded_at TEXT
 );
 CREATE INDEX IF NOT EXISTS predictions_by_time ON predictions (prediction_time);
+CREATE TABLE IF NOT EXISTS drift_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at TEXT NOT NULL,
+    result TEXT NOT NULL
+);
 """
 
 
@@ -142,3 +147,47 @@ class PredictionStore:
                 "SELECT * FROM predictions ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
         return [_row_to_prediction(row) for row in rows]
+
+    def monitoring_window(self, model_version: str, hours: int) -> list[StoredPrediction]:
+        """Entries with an actual demand from one model, over its latest `hours`.
+
+        The window ends at the latest predicted hour rather than the wall clock, so
+        replayed historical traffic is monitored the same way as live traffic.
+        Prediction times are stored normalised to Asia/Seoul, so ISO strings
+        compare in time order.
+        """
+        with self._connection() as connection:
+            latest = connection.execute(
+                "SELECT MAX(prediction_time) FROM predictions "
+                "WHERE model_version = ? AND actual_rentals IS NOT NULL",
+                (model_version,),
+            ).fetchone()[0]
+            if latest is None:
+                return []
+            start = (datetime.fromisoformat(latest) - timedelta(hours=hours)).isoformat()
+            rows = connection.execute(
+                "SELECT * FROM predictions WHERE model_version = ? "
+                "AND actual_rentals IS NOT NULL AND prediction_time > ? "
+                "ORDER BY prediction_time",
+                (model_version, start),
+            ).fetchall()
+        return [_row_to_prediction(row) for row in rows]
+
+    def add_drift_check(self, result: Mapping[str, Any]) -> int:
+        """Store the outcome of a drift check and return its id."""
+        with self._connection() as connection:
+            cursor = connection.execute(
+                "INSERT INTO drift_checks (checked_at, result) VALUES (?, ?)",
+                (_now(), json.dumps(dict(result), ensure_ascii=False)),
+            )
+            return int(cursor.lastrowid)
+
+    def latest_drift_check(self) -> dict[str, Any] | None:
+        """The most recent drift check, with its id, or None if there was none."""
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT id, result FROM drift_checks ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return {"check_id": row["id"], **json.loads(row["result"])}

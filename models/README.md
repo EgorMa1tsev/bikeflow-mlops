@@ -1,20 +1,19 @@
 # Models
 
-Бинарные артефакты не хранятся в Git. Команда
-`python -m bikeflow.ml train --no-figures` создаёт:
+Бинарные артефакты не хранятся в Git. `dvc repro` или `python -m bikeflow.ml train` создаёт:
 
-- `hgb.joblib` — обученный HGB;
-- `seasonal_median.joblib` — baseline;
-- `model.joblib` — копия выбранной serving-модели (сейчас HGB).
-
-С `--include-mlp` дополнительно создаются экспериментальные MLP-артефакты.
+- `model.joblib` — serving-модель, которую загружает API: копия лучшей модели по скользящей
+  валидации (сейчас `mlp_embedding`);
+- `mlp_embedding.joblib`, `mlp_onehot.joblib` — нейросети с эмбеддингами и с one-hot кодированием;
+- `hgb.joblib` — градиентный бустинг;
+- `seasonal_median.joblib` — baseline.
 
 Формат bundle:
 
 ```python
 {
-  "kind": "hgb",
-  "pipeline": InferencePipeline(model),
+  "kind": "mlp_embedding",
+  "pipeline": InferencePipeline(model),   # предобработка и модель вместе
   "feature_spec": {...},
   "target": "rented_bike_count",
   "metadata": {
@@ -27,10 +26,17 @@
     "python": ...,
     "numpy": ...,
     "pandas": ...,
-    "scikit-learn": ...
+    "scikit-learn": ...,
+    "torch": ...
   },
-  "metrics": {...}
+  "metrics": {"train": {...}, "validation": {...}, "test": {...}},
+  "reference": DataFrame                  # эталон для мониторинга дрейфа
 }
 ```
+
+`reference` — период validation с прогнозами этой модели: погода, час, фактический и
+предсказанный спрос. API сравнивает с ним журнал прогнозов, а `metrics.validation.mae` служит
+эталонной ошибкой для concept drift. Модели, обученные до появления мониторинга, эталона не
+содержат — проверка дрейфа для них отвечает `409` и просит переобучить модель.
 
 При загрузке проверяются структура bundle и совместимость feature contract.

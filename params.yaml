@@ -38,6 +38,22 @@ tracking:
   registered_model: bikeflow-demand
   alias: champion
 
+# Drift monitoring over the prediction journal. The reference is the validation
+# split with the served model's own predictions, stored inside the model artifact.
+monitoring:
+  window_hours: 168           # last 7 days of predictions with a known actual demand
+  min_rows: 72                # fewer rows than this are not enough to judge
+  # Concept drift: window MAE / validation MAE. Across every 7-day window of the
+  # validation split the ratio never exceeded 1.54, so 1.6 means "worse than any
+  # week the model showed on data it was validated on".
+  concept_drift_mae_ratio: 1.6
+  # Data and target drift use Evidently's normed Wasserstein distance, fixed here
+  # so the rule does not change with sample size. A column drifts at or above
+  # `drift_threshold`; the data drifts when that holds for `data_drift_share` of
+  # the weather features.
+  drift_threshold: 0.1
+  data_drift_share: 0.5
+
 target: rented_bike_count
 
 features:

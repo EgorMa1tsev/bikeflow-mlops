@@ -8,7 +8,7 @@ from bikeflow.api.dependencies import get_predictor
 from bikeflow.api.main import app
 from bikeflow.api.schemas import PredictionRequest
 from bikeflow.model.stub import StubPredictor
-from bikeflow.replay import observed_demand, replay, to_request
+from bikeflow.replay import ReplayError, observed_demand, replay, to_request
 
 
 def canonical_hours(count: int, start: str = "2018-10-01 06:00") -> pd.DataFrame:
@@ -129,3 +129,55 @@ def test_evening_boost_inflates_only_evening_hours_after_its_start():
     )
     assert observed_demand(morning_after, 1.5, since) == morning_after["rented_bike_count"]
     assert observed_demand(evening_after, 1.0, since) == evening_after["rented_bike_count"]
+
+
+DRIFT_RESULT = {
+    "concept_drift": False,
+    "data_drift": True,
+    "target_drift": False,
+    "mae_ratio": 1.0,
+    "current_mae": 10.0,
+    "window_end": "2018-10-01T10:00:00+09:00",
+}
+
+
+def test_drift_is_checked_after_every_n_reported_hours():
+    calls = []
+    predict = recording_post(calls)
+
+    def post(path, body):
+        if path == "/drift/check":
+            calls.append(path)
+            return DRIFT_RESULT
+        return predict(path, body)
+
+    stats = replay(
+        rows(canonical_hours(5)), post, delay_hours=0, check_every=2, report_every=0, log=print
+    )
+
+    # after the 2nd and 4th reported hour, plus a final check at the end
+    assert calls.count("/drift/check") == 3
+    assert stats.drift_checks == 3
+    assert stats.concept_drift_alerts == 0
+
+
+def test_too_little_data_for_a_drift_check_does_not_stop_the_replay():
+    messages = []
+    predict = recording_post([])
+
+    def post(path, body):
+        if path == "/drift/check":
+            raise ReplayError("POST /drift/check -> HTTP 422: need more rows")
+        return predict(path, body)
+
+    stats = replay(
+        rows(canonical_hours(3)),
+        post,
+        delay_hours=0,
+        check_every=1,
+        report_every=0,
+        log=messages.append,
+    )
+
+    assert stats.predictions == 3
+    assert any("мало данных" in message for message in messages)

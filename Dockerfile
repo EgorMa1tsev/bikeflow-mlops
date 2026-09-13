@@ -13,7 +13,7 @@ RUN python -m pip install --upgrade pip && \
     python -m pip install --constraint requirements/runtime-py311.lock \
         torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu && \
     python -m pip install --constraint requirements/runtime-py311.lock \
-        fastapi==0.115.6 joblib==1.4.2 numpy==2.2.1 pandas==2.2.3 \
+        evidently==0.7.23 fastapi==0.115.6 joblib==1.4.2 numpy==2.2.1 pandas==2.2.3 \
         pydantic-settings==2.7.1 PyYAML==6.0.2 scikit-learn==1.6.1 uvicorn==0.34.0
 
 COPY pyproject.toml README.md params.yaml ./
@@ -34,7 +34,8 @@ FROM base AS runtime
 RUN addgroup --system bikeflow && adduser --system --ingroup bikeflow bikeflow && \
     mkdir -p /var/lib/bikeflow && chown bikeflow:bikeflow /var/lib/bikeflow
 
-ENV BIKEFLOW_DB_PATH=/var/lib/bikeflow/predictions.db
+ENV BIKEFLOW_DB_PATH=/var/lib/bikeflow/predictions.db \
+    BIKEFLOW_MONITORING_DIR=/var/lib/bikeflow/monitoring
 
 USER bikeflow
 EXPOSE 8000

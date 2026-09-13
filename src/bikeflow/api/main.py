@@ -2,13 +2,16 @@
 
 import json
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.responses import FileResponse
 
-from bikeflow.api.dependencies import get_predictor, get_store
+from bikeflow.api.dependencies import get_drift_report_path, get_predictor, get_store
 from bikeflow.api.schemas import (
     ActualRequest,
+    DriftCheckResponse,
     HealthResponse,
     PredictionRecord,
     PredictionRequest,
@@ -16,8 +19,10 @@ from bikeflow.api.schemas import (
 )
 from bikeflow.api.storage import PredictionStore, StoredPrediction
 from bikeflow.config import get_settings
+from bikeflow.ml.config import load_config
 from bikeflow.ml.features import FeatureValidationError
 from bikeflow.model.protocol import Predictor
+from bikeflow.monitoring.drift import InsufficientDataError, check_drift, journal_to_frame
 
 
 class JsonFormatter(logging.Formatter):
@@ -134,3 +139,72 @@ def recent_predictions(
     """The most recent predictions, newest first, with actual demand when known."""
 
     return [_to_record(stored) for stored in store.recent(limit)]
+
+
+@app.post("/drift/check", response_model=DriftCheckResponse, status_code=status.HTTP_200_OK)
+def run_drift_check(
+    predictor: Annotated[Predictor, Depends(get_predictor)],
+    store: Annotated[PredictionStore, Depends(get_store)],
+    report_path: Annotated[Path, Depends(get_drift_report_path)],
+) -> DriftCheckResponse:
+    """Check data, target and concept drift over the latest journal window.
+
+    Writes an Evidently HTML report available at `GET /drift/report`.
+    """
+
+    reference_source = getattr(predictor, "monitoring_reference", None)
+    reference, reference_mae = reference_source() if reference_source else (None, None)
+    if reference is None or reference_mae is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The served model has no drift reference. Retrain it to enable monitoring.",
+        )
+
+    window = store.monitoring_window(
+        predictor.model_version, int(load_config()["monitoring"]["window_hours"])
+    )
+    try:
+        result = check_drift(
+            journal_to_frame(window),
+            reference,
+            reference_mae,
+            predictor.model_version,
+            report_path=report_path,
+        )
+    except InsufficientDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    payload = result.to_dict()
+    check_id = store.add_drift_check(payload)
+    logger.info(
+        "drift_checked id=%s data=%s target=%s concept=%s mae_ratio=%.2f",
+        check_id,
+        result.data_drift,
+        result.target_drift,
+        result.concept_drift,
+        result.mae_ratio,
+    )
+    return DriftCheckResponse(check_id=check_id, **payload)
+
+
+@app.get("/drift/latest", response_model=DriftCheckResponse, status_code=status.HTTP_200_OK)
+def latest_drift_check(
+    store: Annotated[PredictionStore, Depends(get_store)],
+) -> DriftCheckResponse:
+    """The most recent drift check."""
+
+    latest = store.latest_drift_check()
+    if latest is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No drift check yet.")
+    return DriftCheckResponse(**latest)
+
+
+@app.get("/drift/report", response_class=FileResponse, status_code=status.HTTP_200_OK)
+def drift_report(report_path: Annotated[Path, Depends(get_drift_report_path)]) -> FileResponse:
+    """The latest Evidently drift report as an HTML page."""
+
+    if not report_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No drift report yet.")
+    return FileResponse(report_path, media_type="text/html")

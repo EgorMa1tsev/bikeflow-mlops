@@ -101,6 +101,8 @@ class ReplayStats:
     predictions: int = 0
     actuals: int = 0
     absolute_errors: list[float] = field(default_factory=list)
+    drift_checks: int = 0
+    concept_drift_alerts: int = 0
 
     @property
     def mae(self) -> float | None:
@@ -117,9 +119,14 @@ def replay(
     boost: float = 1.0,
     boost_from: pd.Timestamp | None = None,
     report_every: int = 24,
+    check_every: int = 0,
     log: Callable[[str], None] = print,
 ) -> ReplayStats:
-    """Send each hour to the API and report its actual demand `delay_hours` later."""
+    """Send each hour to the API and report its actual demand `delay_hours` later.
+
+    With `check_every` set, a drift check runs after every that many reported
+    hours, the way a scheduler would trigger it in production.
+    """
     stats = ReplayStats()
     pending: deque[tuple[pd.Timestamp, int, float, float]] = deque()
     delay = pd.Timedelta(hours=delay_hours)
@@ -130,6 +137,28 @@ def replay(
             post(f"/predictions/{prediction_id}/actual", {"actual_rentals": actual})
             stats.actuals += 1
             stats.absolute_errors.append(abs(predicted - actual))
+
+    def maybe_check_drift(force: bool = False) -> None:
+        if not check_every or not (
+            force or stats.actuals >= check_every * (stats.drift_checks + 1)
+        ):
+            return
+        stats.drift_checks += 1
+        try:
+            result = post("/drift/check", {})
+        except ReplayError as exc:
+            if "HTTP 422" in str(exc):
+                log("[drift] мало данных для проверки")
+                return
+            raise
+        stats.concept_drift_alerts += bool(result["concept_drift"])
+        flag = "ДРЕЙФ МОДЕЛИ" if result["concept_drift"] else "модель в норме"
+        log(
+            f"[drift] до {result['window_end'][:16]}: {flag} "
+            f"(MAE {result['current_mae']:.0f} = {result['mae_ratio']:.2f} × эталона); "
+            f"data drift {'да' if result['data_drift'] else 'нет'}, "
+            f"target drift {'да' if result['target_drift'] else 'нет'}"
+        )
 
     for row in hours:
         moment = pd.Timestamp(row["timestamp"])
@@ -144,6 +173,7 @@ def replay(
             )
         )
         report(moment - delay)
+        maybe_check_drift()
 
         if report_every and stats.predictions % report_every == 0:
             mae = f"{stats.mae:.1f}" if stats.mae is not None else "—"
@@ -155,6 +185,7 @@ def replay(
             time.sleep(interval)
 
     report(None)
+    maybe_check_drift(force=True)
     return stats
 
 
@@ -182,6 +213,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="multiply 17:00-21:00 demand by this factor (concept drift)",
     )
     parser.add_argument("--boost-from", help="apply the boost from this day, YYYY-MM-DD")
+    parser.add_argument(
+        "--check-every",
+        type=int,
+        default=0,
+        help="run a drift check after every N reported hours (default: off)",
+    )
     return parser
 
 
@@ -207,9 +244,15 @@ def main(argv: list[str] | None = None) -> int:
         interval=args.interval,
         boost=args.evening_boost,
         boost_from=boost_from,
+        check_every=args.check_every,
     )
     mae = f"{stats.mae:.1f}" if stats.mae is not None else "—"
     print(f"[replay] готово: прогнозов {stats.predictions}, фактов {stats.actuals}, MAE {mae}")
+    if stats.drift_checks:
+        print(
+            f"[drift] проверок {stats.drift_checks}, "
+            f"из них с дрейфом модели {stats.concept_drift_alerts}"
+        )
     return 0
 
 

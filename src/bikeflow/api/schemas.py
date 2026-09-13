@@ -109,6 +109,27 @@ class PredictionRecord(BaseModel):
     absolute_error: float | None
 
 
+class DriftCheckResponse(BaseModel):
+    """Outcome of comparing the latest journal window with the model's reference."""
+
+    check_id: int
+    checked_at: datetime
+    model_version: str
+    window_start: datetime
+    window_end: datetime
+    rows: int = Field(description="Predictions with an actual demand in the window.")
+    data_drift: bool = Field(description="Weather differs from the reference period.")
+    drifted_feature_share: float
+    drifted_features: list[str]
+    target_drift: bool = Field(description="Distribution of actual demand has shifted.")
+    target_drift_score: float
+    concept_drift: bool = Field(description="Model error grew; retraining is warranted.")
+    current_mae: float
+    reference_mae: float
+    mae_ratio: float
+    thresholds: dict[str, float]
+
+
 class HealthResponse(BaseModel):
     """Liveness response."""
 

@@ -276,8 +276,11 @@ def run_training(save: bool = True, figures: bool = True) -> dict[str, Any]:
     print("\n" + summary_table(results).to_string(index=False))
 
     if save:
+        from bikeflow.monitoring.drift import build_reference
+
         models_dir = ensure_dir(cfg["paths"]["models_dir"])
         period = (cfg["split"]["train"][0], cfg["split"]["train"][1])
+        validation = data["validation"]
         for name, model in models.items():
             extra = {}
             if hasattr(model, "n_parameters"):
@@ -290,6 +293,9 @@ def run_training(save: bool = True, figures: bool = True) -> dict[str, Any]:
                 train_period=period,
                 training_params=getattr(model, "params", cfg["models"].get(name, {})),
                 extra=extra,
+                # Drift monitoring compares production traffic with the validation
+                # period and this model's own out-of-sample predictions on it.
+                reference=build_reference(validation["raw"], model.predict(validation["X"])),
             )
         production = promote(models_dir / f"{main_kind}.joblib")
         print(f"[save] production MLP artifact -> {production}")

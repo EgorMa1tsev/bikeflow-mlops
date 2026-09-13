@@ -84,3 +84,14 @@ class BikeflowPredictor:
         assert self._predictor is not None
         prediction = self._predictor.predict(to_canonical_row(features))
         return float(prediction[0])
+
+    def monitoring_reference(self) -> tuple[Any | None, float | None]:
+        """Reference data and validation MAE stored with the model for drift checks.
+
+        Both are None for artifacts trained before drift monitoring existed.
+        """
+        self._load()
+        assert self._predictor is not None
+        bundle = self._predictor.bundle
+        validation_mae = bundle.get("metrics", {}).get("validation", {}).get("mae")
+        return bundle.get("reference"), validation_mae

@@ -9,6 +9,7 @@ description = "BikeFlow hourly bike-rental demand API scaffold"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "evidently==0.7.23",
     "fastapi==0.115.6",
     "joblib==1.4.2",
     "numpy==2.2.1",

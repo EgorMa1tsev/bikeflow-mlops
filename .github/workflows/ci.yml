@@ -95,5 +95,10 @@ jobs:
             "http://127.0.0.1:8000/predictions/${id}/actual"
           curl --fail --silent --show-error "http://127.0.0.1:8000/predictions?limit=5" | tee journal.json
           python -c "import json; rows=json.load(open('journal.json')); assert rows[0]['actual_rentals'] == 500; assert rows[0]['absolute_error'] is not None"
+      - name: Drift monitoring is available in the image
+        run: |
+          docker compose exec -T api python -c "from evidently import Report; from evidently.presets import DataDriftPreset, RegressionPreset; print('evidently ok')"
+          # The smoke artifact carries no drift reference, so the endpoint must refuse politely.
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST http://127.0.0.1:8000/drift/check)" = "409"
       - if: always()
         run: docker compose down --volumes
