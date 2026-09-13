@@ -1,13 +1,14 @@
 # BikeFlow
 
-Прогноз почасового спроса на городской велопрокат в Сеуле. Учебный MLOps-проект: путь от
-исходных данных до модели, которая отвечает на HTTP-запросы из Docker-контейнера.
+Прогноз почасового спроса на городской велопрокат в Сеуле. Учебный MLOps-проект: полный путь от
+исходных данных до системы в Kubernetes, которая сама замечает деградацию модели, переобучает её
+и выкатывает новую версию.
 
 Модель предсказывает, сколько велосипедов возьмут в аренду за конкретный час, по дате, времени и
 погоде. Данные — [Seoul Bike Sharing Demand](https://archive.ics.uci.edu/dataset/560/seoul+bike+sharing+demand)
 (UCI): 8760 почасовых наблюдений за год, с декабря 2017 по ноябрь 2018.
 
-## Что уже работает
+## Что умеет
 
 - загрузка датасета с проверкой контрольной суммы, предобработка и проверки качества данных;
 - пайплайн данных и обучения в DVC: одна команда воспроизводит всё и пересчитывает только
@@ -28,8 +29,25 @@
   и список экспериментов;
 - переобучение вручную и автоматически при concept drift: новая модель проходит quality gate и
   только тогда заменяет текущую в реестре MLflow и в API — без перезапуска;
-- Docker-образ;
-- CI на GitHub Actions: линтер, тесты, сборка образа и проверка API в контейнере.
+- Docker-образы и Docker Compose со всеми сервисами;
+- развёртывание в Kubernetes: MLflow-сервер, обучение, API, интерфейс, Prometheus и Grafana;
+- CI/CD: линтер, тесты и сборка на каждый push, публикация образов и выкладка через Argo CD при
+  merge в `main`.
+
+## Быстрый старт
+
+Три способа посмотреть систему, от простого к полному:
+
+| Способ | Что нужно | Разделы |
+| --- | --- | --- |
+| Локально | Python 3.11 | установка (1), обучение (2), API (5), интерфейс (9) |
+| Docker Compose | Docker и обученная модель | 10 |
+| Kubernetes + Argo CD | Docker Desktop с включённым Kubernetes | 11–12 |
+
+Сценарий для демонстрации: запустить API из реестра (8) и интерфейс (9), пустить поток с акцией
+`python -m bikeflow.replay --check-every 24 --evening-boost 2.5 --boost-from 2018-11-01` и смотреть,
+как в интерфейсе появляется уведомление о дрейфе, в MLflow — новые версии модели, а в Grafana —
+переобучения и смена версии.
 
 ## Как устроен прогноз
 
@@ -78,8 +96,8 @@ bikeflow-mlops/
 ├── .dvc/                   настройки DVC
 ├── pyproject.toml          зависимости и настройки линтера
 ├── requirements/           зафиксированные версии пакетов для Python 3.11
-├── Dockerfile              образ API и отдельная стадия для обучения
-├── compose.yaml            локальный запуск API, Prometheus и Grafana в Docker
+├── Dockerfile              образы API, веб-интерфейса и обучения
+├── compose.yaml            локальный запуск API, интерфейса, Prometheus и Grafana
 ├── monitoring/             конфигурация Prometheus и дашборд Grafana
 ├── k8s/                    манифесты Kubernetes
 ├── kustomization.yaml      сборка манифестов: kubectl apply -k .
@@ -101,7 +119,7 @@ bikeflow-mlops/
 │       ├── metrics.py      MAE, WAPE, RMSE, бизнес-метрика
 │       └── cli.py          команды python -m bikeflow.ml ...
 │
-├── tests/                  тесты API, модели и пайплайна
+├── tests/                  тесты API, интерфейса, модели и пайплайна
 ├── scripts/                вспомогательные скрипты для CI
 ├── docs/model/             описание модели и данных
 ├── reports/                метрики последнего обучения
@@ -136,7 +154,7 @@ source .venv/bin/activate
 ```bash
 python -m pip install --upgrade pip
 python -m pip install --constraint requirements/runtime-py311.lock torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
-python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp,dvc]"
+python -m pip install --constraint requirements/runtime-py311.lock -e ".[dev,ml,mlp,dvc,ui]"
 ```
 
 PyTorch ставится отдельной командой из CPU-индекса: обычная сборка тянет CUDA на несколько
@@ -416,7 +434,8 @@ streamlit run src/bikeflow/ui/app.py
 меняется вместе с ней.
 
 Кнопка переобучения работает, когда API запущен из реестра MLflow (шаг 8), иначе вкладка объясняет,
-чего не хватает. Вкладка экспериментов читает `mlflow.db` напрямую, поэтому нужна группа `ml`.
+чего не хватает. Вкладка экспериментов читает то же хранилище MLflow, что и обучение: `mlflow.db`
+или сервер из `MLFLOW_TRACKING_URI`.
 
 ### 10. Docker, Prometheus и Grafana
 
@@ -426,7 +445,7 @@ streamlit run src/bikeflow/ui/app.py
 docker compose up --build
 ```
 
-Поднимаются три сервиса:
+Поднимаются четыре сервиса:
 
 | Сервис | Адрес | Что там |
 | --- | --- | --- |
@@ -487,7 +506,7 @@ kubectl get pods -n bikeflow -w
 
 ```bash
 kubectl delete job train -n bikeflow
-kubectl apply -k .
+kubectl apply -k .          # с Argo CD не нужно: он сам вернёт удалённый Job
 ```
 
 ### 12. Argo CD
@@ -508,9 +527,16 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443
 kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
 ```
 
-<https://localhost:8080>, логин `admin` и пароль из второй команды. Приложение `bikeflow`
+<https://localhost:8080>, логин `admin` и пароль из второй команды (команда с `base64` — для Git
+Bash или WSL). Приложение `bikeflow`
 синхронизируется автоматически: `prune` удаляет то, что удалено из репозитория, `selfHeal`
 возвращает ручные правки к состоянию из git.
+
+**Как код попадает в кластер.** Merge в `main` → CI проверяет код и публикует образы → job `deploy`
+коммитит в `k8s/` теги образов этого коммита → Argo CD замечает коммит и обновляет поды API и
+интерфейса. Журнал прогнозов и реестр моделей лежат на дисках (PVC) и переживают обновление.
+Job обучения при этом не перезапускается: иначе каждая выкладка заменяла бы модель, прошедшую
+переобучение.
 
 ### 13. Тесты и линтер
 
@@ -531,7 +557,9 @@ ruff format --check .
 - `docker-runtime-smoke` — обучает небольшую модель, поднимает API и веб-интерфейс в Docker и
   делает настоящий запрос к `/predict`;
 - `publish` — только для `main`: собирает и публикует три образа в GHCR
-  (`ghcr.io/egorma1tsev/bikeflow-mlops:runtime`, `:ui`, `:training`). Их забирает Kubernetes.
+  (`ghcr.io/egorma1tsev/bikeflow-mlops:runtime`, `:ui`, `:training`, плюс те же с хешем коммита);
+- `deploy` — только для `main`: прописывает в манифестах API и интерфейса образы этого коммита и
+  коммитит изменение. Argo CD видит новый коммит и раскатывает версию в кластер.
 
 ## Ограничения
 

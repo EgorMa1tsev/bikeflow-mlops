@@ -142,3 +142,25 @@ jobs:
             ghcr.io/egorma1tsev/bikeflow-mlops:${{ matrix.target }}-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: deploy
+    # Argo CD deploys what git says. Pointing the manifests at this commit's
+    # images is the change it picks up, so merging into main rolls the new
+    # version out without anyone touching the cluster.
+    if: github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Point the API and UI manifests at this commit's images
+        run: |
+          sed -E -i "s#(ghcr.io/egorma1tsev/bikeflow-mlops:(runtime|ui))(-[0-9a-f]{40})?\$#\1-${GITHUB_SHA}#" \
+            k8s/30-api.yaml k8s/40-ui.yaml
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(deploy): roll out ${GITHUB_SHA::7}"
+          git push

@@ -30,7 +30,7 @@ spec:
       containers:
         - name: api
           image: ghcr.io/egorma1tsev/bikeflow-mlops:runtime
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: MLFLOW_TRACKING_URI
               value: http://mlflow:5000

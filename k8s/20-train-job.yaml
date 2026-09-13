@@ -1,6 +1,8 @@
 # One-off job that fills an empty cluster: it downloads the dataset, runs the
 # pipeline and registers the champion in MLflow, which is where the API looks for
 # the model. Rerun it with `kubectl delete job/train -n bikeflow` + apply.
+# Its image tag stays fixed on purpose: a new tag would make Argo CD recreate the
+# job on every deploy, and a fresh training would replace a promoted champion.
 apiVersion: batch/v1
 kind: Job
 metadata:
