@@ -31,16 +31,19 @@ CMD ["python", "-m", "bikeflow.ml", "train", "--no-figures"]
 FROM base AS runtime
 
 # Retraining runs inside the API: it needs the MLflow client to read and register
-# models, and requests to fetch the dataset the challenger learns from.
+# models, and requests to fetch the dataset below.
 RUN python -m pip install --constraint requirements/runtime-py311.lock \
         mlflow==3.16.0 requests==2.32.3
 
+# Replay and retraining read the raw dataset. It is fetched at build time, so the
+# running API does not depend on the UCI site being reachable from the cluster.
+RUN python -m bikeflow.ml download
+
 # The API runs as an unprivileged user and cannot write under /app, so the
-# prediction journal and the dataset retraining downloads get their own
-# directories owned by that user.
+# prediction journal and the data directory get their own owner.
 RUN addgroup --system bikeflow && adduser --system --ingroup bikeflow bikeflow && \
-    mkdir -p /var/lib/bikeflow /app/data && \
-    chown bikeflow:bikeflow /var/lib/bikeflow /app/data
+    mkdir -p /var/lib/bikeflow && \
+    chown -R bikeflow:bikeflow /var/lib/bikeflow /app/data
 
 ENV BIKEFLOW_DB_PATH=/var/lib/bikeflow/predictions.db \
     BIKEFLOW_MONITORING_DIR=/var/lib/bikeflow/monitoring \
