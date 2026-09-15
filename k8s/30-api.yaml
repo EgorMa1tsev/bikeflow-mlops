@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: ghcr.io/egorma1tsev/bikeflow-mlops:runtime-e9cbb7803a3de9bbf3cff582a30d2d72e629887d
+          image: ghcr.io/egorma1tsev/bikeflow-mlops:runtime-09bcb29ab2e42a6171d968c76ee0c4bb2ffe6ed0
           imagePullPolicy: IfNotPresent
           env:
             - name: MLFLOW_TRACKING_URI

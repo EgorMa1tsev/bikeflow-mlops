@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: ui
-          image: ghcr.io/egorma1tsev/bikeflow-mlops:ui-e9cbb7803a3de9bbf3cff582a30d2d72e629887d
+          image: ghcr.io/egorma1tsev/bikeflow-mlops:ui-09bcb29ab2e42a6171d968c76ee0c4bb2ffe6ed0
           imagePullPolicy: IfNotPresent
           env:
             - name: BIKEFLOW_API_URL
