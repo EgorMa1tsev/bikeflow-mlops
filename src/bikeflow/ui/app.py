@@ -205,7 +205,8 @@ with journal_tab:
     records = get(f"/predictions?limit={limit}")
     if not records:
         st.info(
-            "Журнал пуст: сделайте прогноз или пустите поток данных `python -m bikeflow.replay`."
+            "Журнал пуст: сделайте прогноз или запустите поток данных "
+            "на вкладке «Мониторинг и переобучение»."
         )
     else:
         reference_mae = model["reference_mae"]
@@ -227,7 +228,66 @@ with journal_tab:
 
 # --------------------------------------------------------------------------- monitoring
 
+
+def replay_summary(result: dict[str, Any]) -> str:
+    mae = f"{result['mae']:.0f}" if result["mae"] is not None else "—"
+    return (
+        f"Поток завершён: прогнозов {result['predictions']}, MAE {mae}; "
+        f"проверок дрейфа {result['drift_checks']}, из них с дрейфом модели "
+        f"{result['concept_drift_alerts']}; переобучений {result['retrainings_started']}, "
+        f"новая модель введена в работу {result['retrainings_promoted']} раз."
+    )
+
+
+def replay_progress() -> None:
+    """Status and log of the replay; the page reloads once it is over."""
+    replay = get("/replay/status")
+    if replay["state"] == "running":
+        st.session_state["replay_seen_running"] = True
+        st.info("Поток идёт: часы отправляются в API, ход обновляется сам.", icon="⏳")
+    elif st.session_state.pop("replay_seen_running", False):
+        st.rerun()
+    elif replay["state"] == "failed":
+        st.error(f"Поток упал: {replay['error']}")
+    elif replay["state"] == "finished":
+        st.success(replay_summary(replay["result"]))
+    if replay["log"]:
+        with st.expander("Ход потока", expanded=replay["state"] == "running"):
+            st.code("\n".join(replay["log"][-40:]), language=None)
+
+
 with monitoring_tab:
+    st.subheader("Поток данных")
+    st.caption(
+        "Проигрывает октябрь–ноябрь 2018 через API: прогноз на каждый час, факт через час, "
+        "проверка дрейфа каждые N часов. С выбранного дня вечерний спрос (17–21 ч) умножается "
+        "на коэффициент — акция, о которой модель не знает. Около трёх минут."
+    )
+    columns = st.columns(3)
+    check_every = columns[0].number_input("Проверять дрейф каждые, ч", 0, 168, 24)
+    evening_boost = columns[1].number_input("Вечерний спрос ×", 0.1, 5.0, 2.5, step=0.1)
+    boost_from = columns[2].date_input(
+        "Акция с",
+        value=dt.date(2018, 11, 1),
+        min_value=dt.date(2018, 10, 1),
+        max_value=dt.date(2018, 11, 30),
+        format="YYYY-MM-DD",
+    )
+    if st.button("Запустить поток данных", type="primary"):
+        code, payload = post(
+            "/replay",
+            {
+                "check_every": int(check_every),
+                "evening_boost": float(evening_boost),
+                "boost_from": boost_from.isoformat(),
+            },
+        )
+        if code != 202:
+            st.warning(f"Не запущено ({code}): {error_text(payload)}")
+    # While the replay runs only this block refreshes, the rest of the page stays put.
+    replay_running = get("/replay/status")["state"] == "running"
+    st.fragment(replay_progress, run_every=3 if replay_running else None)()
+
     st.subheader("Дрейф")
     left, right = st.columns(2)
     if left.button("Проверить дрейф сейчас", width="stretch"):

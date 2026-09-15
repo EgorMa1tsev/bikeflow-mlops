@@ -162,3 +162,23 @@ API загружает модель из реестра MLflow, а переоб�
 ```
 
 При `"promoted": true` следующий `/predict` уже отвечает новой версией (`model_version`).
+
+## Поток данных
+
+API может сам запустить сценарий `python -m bikeflow.replay` в фоновом потоке. Поток — обычный
+клиент: он шлёт часы в этот же API по HTTP (адрес `BIKEFLOW_API_URL`, по умолчанию
+`http://127.0.0.1:8000`) и перед стартом скачивает датасет, если его нет.
+
+| Запрос | Ответ |
+| --- | --- |
+| `POST /replay` | `202` и статус `running`; `409`, если поток уже идёт |
+| `GET /replay/status` | состояние, параметры, последние 200 строк хода и итог последнего потока |
+
+Тело `POST /replay` необязательно; без него — сценарий дрейфа из README:
+
+```json
+{"check_every": 24, "evening_boost": 2.5, "boost_from": "2018-11-01", "hours": null}
+```
+
+Итог в `result`: `predictions`, `actuals`, `mae`, `drift_checks`, `concept_drift_alerts`,
+`retrainings_started`, `retrainings_promoted`.

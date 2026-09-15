@@ -92,6 +92,7 @@ def api(monkeypatch):
         "/drift/latest": DRIFT,
         "/predictions": PREDICTIONS,
         "/retrain/status": IDLE,
+        "/replay/status": {**IDLE, "params": None, "log": []},
     }
     calls: list[tuple[str, str]] = []
 
@@ -104,9 +105,10 @@ def api(monkeypatch):
         payload = responses.get(path)
         return FakeResponse(payload, 200 if payload is not None else 404)
 
-    def fake_post(url: str, **_: Any) -> FakeResponse:
+    def fake_post(url: str, **kwargs: Any) -> FakeResponse:
         path = route(url.split("8000", 1)[-1])
         calls.append(("POST", path))
+        responses["BODY " + path] = kwargs.get("json")
         payload = responses.get("POST " + path, {"detail": "ok"})
         return FakeResponse(payload, responses.get("POST_CODE " + path, 200))
 
@@ -176,3 +178,59 @@ def test_the_drift_report_is_fetched_through_the_api(api):
 
     assert not app.exception
     assert ("GET", "/drift/report") in calls
+
+
+def test_the_replay_button_starts_the_drift_demo(api):
+    responses, calls = api
+    responses["POST_CODE /replay"] = 202
+    app = AppTest.from_file(APP, default_timeout=60).run()
+
+    next(button for button in app.button if button.label == "Запустить поток данных").click().run()
+
+    assert not app.exception
+    assert ("POST", "/replay") in calls
+    assert responses["BODY /replay"] == {
+        "check_every": 24,
+        "evening_boost": 2.5,
+        "boost_from": "2018-11-01",
+    }
+
+
+def test_a_finished_replay_shows_its_totals_and_log(api):
+    responses, _ = api
+    responses["/replay/status"] = {
+        **IDLE,
+        "state": "finished",
+        "params": {},
+        "result": {
+            "predictions": 1464,
+            "actuals": 1464,
+            "mae": 300.4,
+            "drift_checks": 61,
+            "concept_drift_alerts": 27,
+            "retrainings_started": 4,
+            "retrainings_promoted": 1,
+        },
+        "log": ["[replay] 1464 ч", "[replay] готово"],
+    }
+
+    app = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not app.exception
+    assert any("прогнозов 1464" in message.value for message in app.success)
+    assert any("[replay] готово" in block.value for block in app.code)
+
+
+def test_a_running_replay_shows_its_progress(api):
+    responses, _ = api
+    responses["/replay/status"] = {
+        **IDLE,
+        "state": "running",
+        "params": {},
+        "log": ["[replay] 1464 ч"],
+    }
+
+    app = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not app.exception
+    assert any("Поток идёт" in message.value for message in app.info)

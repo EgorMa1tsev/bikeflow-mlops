@@ -13,6 +13,8 @@ without any change in its inputs — a controlled concept drift.
 
     python -m bikeflow.replay --hours 72
     python -m bikeflow.replay --interval 0.5 --evening-boost 1.6 --boost-from 2018-11-01
+
+The API can run the same scenario in its own background thread: `POST /replay`.
 """
 
 from __future__ import annotations
@@ -272,40 +274,68 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    hours = load_hours(args.start, args.end)
-    if args.hours is not None:
-        hours = hours.head(args.hours)
+def run_scenario(
+    api: str,
+    start: str | None = None,
+    end: str | None = None,
+    hours: int | None = None,
+    delay: int = 1,
+    interval: float = 0.0,
+    evening_boost: float = 1.0,
+    boost_from: str | None = None,
+    check_every: int = 0,
+    log: Callable[[str], None] = print,
+) -> ReplayStats:
+    """Load the period and replay it against the API at `api`, logging progress."""
+    frame = load_hours(start, end)
+    if hours is not None:
+        frame = frame.head(hours)
 
-    boost_from = pd.Timestamp(args.boost_from) if args.boost_from else None
-    print(
-        f"[replay] {len(hours)} ч: {hours['timestamp'].min():%Y-%m-%d %H:00} .. "
-        f"{hours['timestamp'].max():%Y-%m-%d %H:00} -> {args.api}"
+    boost_start = pd.Timestamp(boost_from) if boost_from else None
+    log(
+        f"[replay] {len(frame)} ч: {frame['timestamp'].min():%Y-%m-%d %H:00} .. "
+        f"{frame['timestamp'].max():%Y-%m-%d %H:00} -> {api}"
     )
-    if args.evening_boost != 1.0:
-        since = f" с {boost_from:%Y-%m-%d}" if boost_from is not None else ""
-        print(f"[replay] вечерний спрос ×{args.evening_boost}{since}")
+    if evening_boost != 1.0:
+        since = f" с {boost_start:%Y-%m-%d}" if boost_start is not None else ""
+        log(f"[replay] вечерний спрос ×{evening_boost}{since}")
 
     stats = replay(
-        (row for _, row in hours.iterrows()),
-        http_post(args.api),
-        delay_hours=args.delay,
-        interval=args.interval,
-        boost=args.evening_boost,
-        boost_from=boost_from,
-        check_every=args.check_every,
-        get=http_get(args.api),
+        (row for _, row in frame.iterrows()),
+        http_post(api),
+        delay_hours=delay,
+        interval=interval,
+        boost=evening_boost,
+        boost_from=boost_start,
+        check_every=check_every,
+        log=log,
+        get=http_get(api),
     )
     mae = f"{stats.mae:.1f}" if stats.mae is not None else "—"
-    print(f"[replay] готово: прогнозов {stats.predictions}, фактов {stats.actuals}, MAE {mae}")
+    log(f"[replay] готово: прогнозов {stats.predictions}, фактов {stats.actuals}, MAE {mae}")
     if stats.drift_checks:
-        print(
+        log(
             f"[drift] проверок {stats.drift_checks}, "
             f"из них с дрейфом модели {stats.concept_drift_alerts}, "
             f"переобучений {stats.retrainings_started}, "
             f"новая модель введена в работу {stats.retrainings_promoted} раз"
         )
+    return stats
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    run_scenario(
+        args.api,
+        start=args.start,
+        end=args.end,
+        hours=args.hours,
+        delay=args.delay,
+        interval=args.interval,
+        evening_boost=args.evening_boost,
+        boost_from=args.boost_from,
+        check_every=args.check_every,
+    )
     return 0
 
 

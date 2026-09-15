@@ -17,6 +17,7 @@ from bikeflow.api import metrics
 from bikeflow.api.dependencies import (
     get_drift_report_path,
     get_predictor,
+    get_replay_manager,
     get_retraining_manager,
     get_store,
 )
@@ -29,8 +30,11 @@ from bikeflow.api.schemas import (
     PredictionRecord,
     PredictionRequest,
     PredictionResponse,
+    ReplayRequest,
+    ReplayStatus,
     RetrainingStatus,
 )
+from bikeflow.api.simulation import ReplayManager
 from bikeflow.api.storage import PredictionStore, StoredPrediction
 from bikeflow.config import get_settings
 from bikeflow.ml.config import load_config
@@ -306,6 +310,34 @@ def retraining_status(
     if current["state"] == "idle":
         current["result"] = store.latest_retraining()
     return RetrainingStatus(**current)
+
+
+@app.post("/replay", response_model=ReplayStatus, status_code=status.HTTP_202_ACCEPTED)
+def start_replay(
+    replay: Annotated[ReplayManager, Depends(get_replay_manager)],
+    request: ReplayRequest | None = None,
+) -> ReplayStatus:
+    """Replay the test period through this API in the background.
+
+    The same as `python -m bikeflow.replay --check-every 24 --evening-boost 2.5
+    --boost-from 2018-11-01` with the default body. Poll `GET /replay/status`.
+    """
+
+    params = (request or ReplayRequest()).model_dump(mode="json")
+    if not replay.start(params):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Replay is already running."
+        )
+    return ReplayStatus(**replay.status())
+
+
+@app.get("/replay/status", response_model=ReplayStatus, status_code=status.HTTP_200_OK)
+def replay_status(
+    replay: Annotated[ReplayManager, Depends(get_replay_manager)],
+) -> ReplayStatus:
+    """The running replay, or the last finished one, with its log."""
+
+    return ReplayStatus(**replay.status())
 
 
 @app.get("/drift/latest", response_model=DriftCheckResponse, status_code=status.HTTP_200_OK)

@@ -1,10 +1,12 @@
 """FastAPI dependencies for replaceable runtime components."""
 
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from bikeflow.api.retraining import RetrainingManager
+from bikeflow.api.simulation import ReplayManager
 from bikeflow.api.storage import PredictionStore
 from bikeflow.config import get_settings
 from bikeflow.model.adapter import BikeflowPredictor
@@ -46,6 +48,31 @@ def retraining_job(trigger: str) -> dict[str, Any]:
         # The alias now points at the challenger; the next request loads it.
         get_predictor.cache_clear()
     return payload
+
+
+def replay_job(params: dict[str, Any], log: Callable[[str], None]) -> dict[str, Any]:
+    """Replay the test period against this API over HTTP, as an outside client would."""
+
+    from bikeflow.ml.data.download import download_raw
+    from bikeflow.replay import run_scenario
+
+    download_raw()
+    # BIKEFLOW_API_URL is unset in the API container, so this is the API itself.
+    stats = run_scenario(get_settings().api_url, log=log, **params)
+    return {
+        "predictions": stats.predictions,
+        "actuals": stats.actuals,
+        "mae": stats.mae,
+        "drift_checks": stats.drift_checks,
+        "concept_drift_alerts": stats.concept_drift_alerts,
+        "retrainings_started": stats.retrainings_started,
+        "retrainings_promoted": stats.retrainings_promoted,
+    }
+
+
+@lru_cache
+def get_replay_manager() -> ReplayManager:
+    return ReplayManager(replay_job)
 
 
 @lru_cache

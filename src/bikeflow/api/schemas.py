@@ -1,6 +1,6 @@
 """Centralized preliminary request and response schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -143,6 +143,33 @@ class RetrainingStatus(BaseModel):
     finished_at: datetime | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+
+
+class ReplayRequest(BaseModel):
+    """Scenario for `POST /replay`; the defaults are the concept-drift demo."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    check_every: int = Field(default=24, ge=0, description="drift check after every N hours")
+    evening_boost: float = Field(
+        default=2.5, gt=0, description="multiply 17:00-21:00 demand by this factor"
+    )
+    boost_from: date | None = Field(
+        default=date(2018, 11, 1), description="apply the boost from this day"
+    )
+    hours: int | None = Field(default=None, ge=1, description="replay at most this many hours")
+
+
+class ReplayStatus(BaseModel):
+    """State of the background replay, its log and the totals of the last run."""
+
+    state: str = Field(description="idle, running, finished or failed")
+    params: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    log: list[str] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
